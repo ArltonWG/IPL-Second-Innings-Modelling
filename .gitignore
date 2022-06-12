@@ -1,0 +1,10 @@
+*.xls*
+*.RData
+*.txt
+*.ini
+*.Rhistory*
+*.jpg
+*.jpeg
+Unused
+
+!Data/*.xls*

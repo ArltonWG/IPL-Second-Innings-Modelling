@@ -1,0 +1,407 @@
+---
+title: "Bowler Stats"
+author: "Arlton Gilbert"
+date: "23/05/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+#FILENUM: 7
+knitr::opts_chunk$set(echo = TRUE)
+#knitr::opts_knit$set(root.dir = dirname(rstudioapi::getActiveDocumentContext()$path))
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+#library(stringr)
+library(tidyverse)
+#library(tidyr)
+#library(dplyr)
+library("xlsx")
+#library(rvest)
+#library(anytime)
+library("readxl")
+library(zoo)
+library(openxlsx)#normal excel wasn't writing 
+rm(list=ls())
+#Average Run Time ~ 36min
+
+```
+
+```{r clearprevious}
+#ensure old files are not left there
+do.call(file.remove, list(list.files("Indiv Stats Ext/Bowl Stats Ext", full.names = TRUE)))
+do.call(file.remove, list(list.files("Indiv Stats Ext/Group Bowl Stats Ext", full.names = TRUE)))
+
+```
+
+```{r loadings}
+#To get the bowler names
+load(file='Player Roles.RData')
+load(file='Player Splitter.RData')
+start.time <- Sys.time()
+sink("Indiv Stats Ext/Bowl Log.txt")
+
+```
+
+```{r names}
+
+mom = 5 #number of matches to use in momentum
+mu = 0.8
+mult = 100000 #scale to make more readable
+
+#Player Roles
+#colnames(bowlext) #to copy the names
+stat_heads = c("...1","Player","MP","MB","O","M","R","W","NB","WD","ECO","NonBowlExt","Stadium","Date","Time","Team","Opponent","InningsNum",
+"BowlNum","OppScore","OwnScore","Toss","Decision","MatchNum","Result","Captain","WicketKeeper","Full Overs","Sub Balls","Match Balls","Team Overs","Team Overs Started","Own Overs Started","Contribution Score","Role","Cleaned Role","Country","Matches Played","Matches Bowled","Tot Balls","Tot Overs","Tot Maidens","Tot Runs","Tot Wickets","Tot Contribution Score","Bowling Average","Bowling Strike Rate","Career Bowl Score","Weighted Career Bowl Score","Running Matches Played","Running Matches Bowled","Running Contribution Score","Running Runs","Running Balls","Running Maidens","Running Wickets","Running Bowling Average","Running Bowling Strike Rate","Running Bowl Score","Weighted Running Bowl Score","Bowling Strength","Weighted Bowling Strength")
+
+#Overall Stats
+ncols = length(stat_heads)
+all_bowl_bowl_scores=setNames(data.frame(matrix(ncol=ncols,nrow=0)),stat_heads)
+batsman_bowl_scores=setNames(data.frame(matrix(ncol=ncols,nrow=0)),stat_heads)
+bat_allrounder_bowl_scores=setNames(data.frame(matrix(ncol=ncols,nrow=0)),stat_heads)
+bowl_allrounder_bowl_scores=setNames(data.frame(matrix(ncol=ncols,nrow=0)),stat_heads)
+bowler_bowl_scores=setNames(data.frame(matrix(ncol=ncols,nrow=0)),stat_heads)
+
+#Indian Players
+local_all_bowl_bowl_scores=setNames(data.frame(matrix(ncol=ncols,nrow=0)),stat_heads)
+local_batsman_bowl_scores=setNames(data.frame(matrix(ncol=ncols,nrow=0)),stat_heads)
+local_bat_allrounder_bowl_scores=setNames(data.frame(matrix(ncol=ncols,nrow=0)),stat_heads)
+local_bowl_allrounder_bowl_scores=setNames(data.frame(matrix(ncol=ncols,nrow=0)),stat_heads)
+local_bowler_bowl_scores=setNames(data.frame(matrix(ncol=ncols,nrow=0)),stat_heads)
+
+#Foreign Players
+foreign_all_bowl_bowl_scores=setNames(data.frame(matrix(ncol=ncols,nrow=0)),stat_heads)
+foreign_batsman_bowl_scores=setNames(data.frame(matrix(ncol=ncols,nrow=0)),stat_heads)
+foreign_bat_allrounder_bowl_scores=setNames(data.frame(matrix(ncol=ncols,nrow=0)),stat_heads)
+foreign_bowl_allrounder_bowl_scores=setNames(data.frame(matrix(ncol=ncols,nrow=0)),stat_heads)
+foreign_bowler_bowl_scores=setNames(data.frame(matrix(ncol=ncols,nrow=0)),stat_heads)
+
+for (name in bowlnames$Player){
+  bowlinfo = read_excel(paste0("Indiv Stats/Bowl Stats/",name," Bowl.xlsx"),sheet = "Bowl")
+  role = profilered[tolower(profilered$Player) == tolower(name), "Position"]
+  country = profilered[tolower(profilered$Player) == tolower(name), "Country"]
+  
+  print(paste0('processing ',name))
+  
+  if (is.na(role) || role == "--"){
+    print (paste0(name,' not found in the player roles'))
+  }
+  cleaned_role = str_replace(role,'WK-','')
+  
+  if (is.na(country)){
+    print (paste0(name,' not found in the countries'))
+  } 
+  
+  bowlext = bowlinfo %>% add_column(`Full Overs` = as.numeric(str_split_fixed(bowlinfo$O,"\\.",2)[,1]), 
+            `Sub Balls` = as.numeric(str_split_fixed(bowlinfo$O,"\\.",2)[,2]),
+            `Match Balls` = `Full Overs` * 6 + ifelse(is.na(`Sub Balls`),0,`Sub Balls`),
+            `Team Overs` = str_replace(str_split_fixed(bowlinfo$OppScore,"\\(",2)[,2]," Ov\\)",""),
+            `Team Overs Started`= ceiling(as.numeric(`Team Overs`)),
+            `Own Overs Started` = ceiling(as.numeric(bowlinfo$O)),
+            `Contribution Score` = pmin(5*`Own Overs Started`/`Team Overs Started`,1),
+            Role = role, 
+            `Cleaned Role` = cleaned_role, 
+            Country = country ,
+            `Matches Played` = cumsum(bowlinfo$MP),
+            `Matches Bowled` = cumsum(bowlinfo$MB),
+            `Tot Balls` = cumsum(ifelse(is.na(`Match Balls`),0,`Match Balls`)),
+            `Tot Overs` = paste0(as.integer(`Tot Balls`/6),".",`Tot Balls`%%6),
+            #`Tot Team Overs Started` = cumsum(`Team Overs Started`),
+            #`Tot Own Overs Started` = cumsum(`Own Overs Started`),
+            `Tot Maidens` = cumsum(ifelse(is.na(bowlinfo$M),0,bowlinfo$M)),
+            `Tot Runs` = cumsum(ifelse(is.na(bowlinfo$R),0,bowlinfo$R)),
+            `Tot Wickets` = cumsum(ifelse(is.na(bowlinfo$W),0,bowlinfo$W)),
+            `Tot Contribution Score` = cumsum(ifelse(is.na(`Contribution Score`),0,`Contribution Score`)),
+            `Bowling Average` = ifelse(`Tot Balls`>0,`Tot Runs`/(`Tot Balls`/ 6),0),
+            `Bowling Strike Rate` = ifelse(`Tot Wickets`>0,(`Tot Balls`/`Tot Wickets`),0),
+            `Career Bowl Score` =  ifelse(`Bowling Average`*`Bowling Strike Rate` == 0, 0, mult/(`Bowling Average` * `Bowling Strike Rate`)),
+            `Weighted Career Bowl Score` = sqrt(`Tot Contribution Score`/`Matches Played`)*`Career Bowl Score`,
+            `Running Matches Played` = rollapply(ifelse(is.na(bowlinfo$`MP`),0,bowlinfo$`MP`),mom,sum,partial = TRUE,align='right'),
+            `Running Matches Bowled` = rollapply(ifelse(is.na(bowlinfo$`MB`),0,bowlinfo$`MB`),mom,sum,partial = TRUE,align='right'),
+            `Running Contribution Score` = rollapply(ifelse(is.na(`Contribution Score`),0,`Contribution Score`),mom,sum,partial = TRUE,align='right'),
+            `Running Runs` = rollapply(ifelse(is.na(bowlinfo$R),0,as.numeric(bowlinfo$R)),mom,sum,partial = TRUE,align='right'),
+            `Running Balls` = rollapply(ifelse(is.na(`Match Balls`),0,as.numeric(`Match Balls`)),mom,sum,partial = TRUE,align='right'),
+            `Running Maidens` = rollapply(ifelse(is.na(bowlinfo$M),0,as.numeric(bowlinfo$M)),mom,sum,partial = TRUE,align='right'),
+            `Running Wickets` = rollapply(ifelse(is.na(bowlinfo$W),0,as.numeric(bowlinfo$W)),mom,sum,partial = TRUE,align='right'),
+            `Running Bowling Average` = ifelse(`Running Balls` > 0,`Running Runs`/(`Running Balls`/ 6),0),
+            `Running Bowling Strike Rate` = ifelse(`Running Wickets`>0,(`Running Balls`/`Running Wickets`),0),
+            `Running Bowl Score` = ifelse(`Running Bowling Average` * `Running Bowling Strike Rate` == 0, 0, mult/(`Running Bowling Average` * `Running Bowling Strike Rate`)),
+            `Weighted Running Bowl Score` = sqrt(`Running Contribution Score`/`Running Matches Played`) * `Running Bowl Score`,
+            `Bowling Strength` = mu * `Career Bowl Score` + (1- mu)*`Running Bowl Score`,
+            `Weighted Bowling Strength` = mu * `Weighted Career Bowl Score` + (1- mu)*`Weighted Running Bowl Score`)
+  #weighted means weighted by matches bowled/matches played
+  #Running means last x (currently 5) matches
+      
+  assign(paste0(str_replace_all(name," ","_"),'_bowl_ext'),bowlext)  
+  
+  all_bowl_bowl_scores= rbind(all_bowl_bowl_scores,bowlext)
+  if(bowlext$`Cleaned Role`[1] == 'Batsman'){
+    batsman_bowl_scores= rbind(batsman_bowl_scores,bowlext)
+  }
+  else if(bowlext$`Cleaned Role`[1] == 'Batting Allrounder'){
+    bat_allrounder_bowl_scores= rbind(bat_allrounder_bowl_scores,bowlext)
+  }
+  else if(bowlext$`Cleaned Role`[1] == 'Bowling Allrounder'){
+    bowl_allrounder_bowl_scores= rbind(bowl_allrounder_bowl_scores,bowlext)
+  }
+  else if(bowlext$`Cleaned Role`[1] == 'Bowler'){
+    bowler_bowl_scores= rbind(bowler_bowl_scores,bowlext)
+  }
+
+  if(bowlext$Country[1] == "India"){
+    local_all_bowl_bowl_scores= rbind(local_all_bowl_bowl_scores,bowlext)
+    if(bowlext$`Cleaned Role`[1] == 'Batsman'){
+      local_batsman_bowl_scores= rbind(local_batsman_bowl_scores,bowlext)
+    }
+    else if(bowlext$`Cleaned Role`[1] == 'Batting Allrounder'){
+      local_bat_allrounder_bowl_scores= rbind(local_bat_allrounder_bowl_scores,bowlext)
+    }
+    else if(bowlext$`Cleaned Role`[1] == 'Bowling Allrounder'){
+      local_bowl_allrounder_bowl_scores= rbind(local_bowl_allrounder_bowl_scores,bowlext)
+    }
+    else if(bowlext$`Cleaned Role`[1] == 'Bowler'){
+      local_bowler_bowl_scores= rbind(local_bowler_bowl_scores,bowlext)
+    }
+  }
+  
+  else{
+    foreign_all_bowl_bowl_scores= rbind(foreign_all_bowl_bowl_scores,bowlext)
+    if(bowlext$`Cleaned Role`[1] == 'Batsman'){
+      foreign_batsman_bowl_scores= rbind(foreign_batsman_bowl_scores,bowlext)
+    }
+    else if(bowlext$`Cleaned Role`[1] == 'Batting Allrounder'){
+      foreign_bat_allrounder_bowl_scores= rbind(foreign_bat_allrounder_bowl_scores,bowlext)
+    }
+    else if(bowlext$`Cleaned Role`[1] == 'Bowling Allrounder'){
+      foreign_bowl_allrounder_bowl_scores= rbind(foreign_bowl_allrounder_bowl_scores,bowlext)
+    }
+    else if(bowlext$`Cleaned Role`[1] == 'Bowler'){
+      foreign_bowler_bowl_scores= rbind(foreign_bowler_bowl_scores,bowlext)
+    }
+  }
+  
+  print(paste0(name," done"))
+}
+
+#View(bowlext)
+#View(all_bowl_bowl_scores)
+#View(batsman_bowl_scores)
+#View(bowl_allrounder_bowl_scores)
+#View(bowl_allrounder_bowl_scores)
+#View(bowler_bowl_scores)
+#View(local_bowler_bowl_scores)
+#View(foreign_bowler_bowl_scores)
+
+sink()
+
+```
+
+```{r bestbowl}
+#best bowler with at least 5 games
+best_bowl = all_bowl_bowl_scores %>% filter(`Matches Played`>=mom) %>% arrange(desc(`Bowling Strength`)) %>% distinct(Player,.keep_all = TRUE) %>% head(20) 
+View(best_bowl)
+
+weighted_best_bowl = all_bowl_bowl_scores %>% filter(`Matches Played`>=mom) %>% arrange(desc(`Weighted Bowling Strength`)) %>% distinct(Player,.keep_all = TRUE) %>% head(20)
+View(weighted_best_bowl)
+
+```
+
+```{r bowlsave}
+openxlsx::write.xlsx(all_bowl_bowl_scores, file = "Indiv Stats Ext/Group Bowl Stats Ext/All Bowl Scores.xlsx",sheetName ="All Bowl Scores", append = FALSE)
+openxlsx::write.xlsx(batsman_bowl_scores, file = "Indiv Stats Ext/Group Bowl Stats Ext/Batsman Bowl Scores.xlsx",sheetName ="Batsman Bowl Scores", append = FALSE)
+openxlsx::write.xlsx(bat_allrounder_bowl_scores, file = "Indiv Stats Ext/Group Bowl Stats Ext/Batting Allrounder Bowl Scores.xlsx",sheetName ="Bat All Bowl Scores", append = FALSE)
+openxlsx::write.xlsx(bowl_allrounder_bowl_scores, file = "Indiv Stats Ext/Group Bowl Stats Ext/Bowling Allrounder Bowl Scores.xlsx",sheetName ="Bowl All Bowl Scores", append = FALSE)
+openxlsx::write.xlsx(bowler_bowl_scores, file = "Indiv Stats Ext/Group Bowl Stats Ext/Bowler Bowl Scores.xlsx",sheetName ="Bowler Bowl Scores", append = FALSE)
+
+#Indian Players
+openxlsx::write.xlsx(local_all_bowl_bowl_scores, file = "Indiv Stats Ext/Group Bowl Stats Ext/Local All Bowl Scores.xlsx",sheetName ="All Bowl Scores", append = FALSE)
+openxlsx::write.xlsx(local_bat_allrounder_bowl_scores, file = "Indiv Stats Ext/Group Bowl Stats Ext/Local Batting Allrounder Bowl Scores.xlsx",sheetName ="Bat All Bowl Scores", append = FALSE)
+openxlsx::write.xlsx(local_batsman_bowl_scores, file = "Indiv Stats Ext/Group Bowl Stats Ext/Local Batsman Bowl Scores.xlsx",sheetName ="Batsman Bowl Scores", append = FALSE)
+openxlsx::write.xlsx(local_bowl_allrounder_bowl_scores, file = "Indiv Stats Ext/Group Bowl Stats Ext/Local Bowling Allrounder Bowl Scores.xlsx",sheetName ="Bowl All Bowl Scores", append = FALSE)
+openxlsx::write.xlsx(local_bowler_bowl_scores, file = "Indiv Stats Ext/Group Bowl Stats Ext/Local Bowler Bowl Scores.xlsx",sheetName ="Bowler Bowl Scores", append = FALSE)
+
+#Foreign Players
+openxlsx::write.xlsx(foreign_all_bowl_bowl_scores, file = "Indiv Stats Ext/Group Bowl Stats Ext/Foreign All Bowl Scores.xlsx",sheetName ="All Bowl Scores", append = FALSE)
+openxlsx::write.xlsx(foreign_batsman_bowl_scores, file = "Indiv Stats Ext/Group Bowl Stats Ext/Foreign Batsman Bowl Scores.xlsx",sheetName ="Batsman Bowl Scores", append = FALSE)
+openxlsx::write.xlsx(foreign_bat_allrounder_bowl_scores, file = "Indiv Stats Ext/Group Bowl Stats Ext/Foreign Batting Allrounder Bowl Scores.xlsx",sheetName ="Bat All Bowl Scores", append = FALSE)
+openxlsx::write.xlsx(foreign_bowl_allrounder_bowl_scores, file = "Indiv Stats Ext/Group Bowl Stats Ext/Foreign Bowling Allrounder Bowl Scores.xlsx",sheetName ="Bowl All Bowl Scores", append = FALSE)
+openxlsx::write.xlsx(foreign_bowler_bowl_scores, file = "Indiv Stats Ext/Group Bowl Stats Ext/Foreign Bowler Bowl Scores.xlsx",sheetName ="Bowler Bowl Scores", append = FALSE)
+
+print("Writing done")
+
+```
+
+```{r filter}
+# only take those who have played enough matches
+all_bowl_bowl_clear = all_bowl_bowl_scores %>% filter(`Running Matches Played` == mom)
+batsman_bowl_clear = batsman_bowl_scores %>% filter(`Running Matches Played` == mom)
+bat_allrounder_bowl_clear = bat_allrounder_bowl_scores %>% filter(`Running Matches Played` == mom)
+bowl_allrounder_bowl_clear = bowl_allrounder_bowl_scores %>% filter(`Running Matches Played` == mom)
+bowler_bowl_clear = bowler_bowl_scores %>% filter(`Running Matches Played` == mom)
+
+local_all_bowl_bowl_clear = local_all_bowl_bowl_scores %>% filter(`Running Matches Played` == mom)
+local_batsman_bowl_clear = local_batsman_bowl_scores %>% filter(`Running Matches Played` == mom)
+local_bat_allrounder_bowl_clear = local_bat_allrounder_bowl_scores %>% filter(`Running Matches Played` == mom)
+local_bowl_allrounder_bowl_clear = local_bowl_allrounder_bowl_scores %>% filter(`Running Matches Played` == mom)
+local_bowler_bowl_clear = local_bowler_bowl_scores %>% filter(`Running Matches Played` == mom)
+
+foreign_all_bowl_bowl_clear = foreign_all_bowl_bowl_scores %>% filter(`Running Matches Played` == mom)
+foreign_batsman_bowl_clear = foreign_batsman_bowl_scores %>% filter(`Running Matches Played` == mom)
+foreign_bat_allrounder_bowl_clear = foreign_bat_allrounder_bowl_scores %>% filter(`Running Matches Played` == mom)
+foreign_bowl_allrounder_bowl_clear = foreign_bowl_allrounder_bowl_scores %>% filter(`Running Matches Played` == mom)
+foreign_bowler_bowl_clear = foreign_bowler_bowl_scores %>% filter(`Running Matches Played` == mom)
+
+```
+
+```{r matchstats}
+#tot_matches = 824 #Should be 884 coming through from loaded files
+bowl_col_names = c("Real Match Num","MatchNum","Avg All Bowl Strength","Avg Batsman Bowl Strength","Avg Bat Allrounder Bowl Strength","Avg Bowl Allrounder Bowl Strength","Avg Bowler Bowl Strength","Avg All Bowl Weighted Strength","Avg Batsman Bowl Weighted Strength","Avg Bat Allrounder Bowl Weighted Strength","Avg Bowl Allrounder Bowl Weighted Strength","Avg Bowler Bowl Weighted Strength")
+col_tots = length(bowl_col_names)
+
+overall_bowl_summary = setNames(data.frame(matrix(ncol=col_tots,nrow=tot_matches+1)),bowl_col_names)
+local_overall_bowl_summary = setNames(data.frame(matrix(ncol=col_tots,nrow=tot_matches+1)),bowl_col_names)
+foreign_overall_bowl_summary = setNames(data.frame(matrix(ncol=col_tots,nrow=tot_matches+1)),bowl_col_names)
+
+score = function(bowl_clear){
+  return (mean((bowl_clear %>% filter(MatchNum <= matches) %>% group_by(Player) %>% summarise(across(everything(), last)))$`Bowling Strength`)) #test different sections of this
+}
+
+weight_score = function(bowl_clear){
+  return (mean((bowl_clear %>% filter(MatchNum <= matches) %>% group_by(Player) %>% summarise(across(everything(), last)))$`Weighted Bowling Strength`)) #test different sections of this
+}
+
+#Match 0
+overall_bowl_summary[,1] = c(0:tot_matches)
+overall_bowl_summary[,2] = c(1:(tot_matches+1))
+
+local_overall_bowl_summary[,1] = c(0:tot_matches)
+local_overall_bowl_summary[,2] = c(1:(tot_matches+1))
+
+foreign_overall_bowl_summary[,1] = c(0:tot_matches)
+foreign_overall_bowl_summary[,2] = c(1:(tot_matches+1))
+
+for (matches in c(1:tot_matches)){
+  # take only those matches up to our current match, then only take the last match in that of each player and then the average bowling_Strength of all these
+  #MatchNumber is the number for merging since we want as at the end of the previous match
+  overall_bowl_summary[matches+1,3] = score(all_bowl_bowl_clear)
+  overall_bowl_summary[matches+1,4] = score(batsman_bowl_clear)
+  overall_bowl_summary[matches+1,5] = score(bat_allrounder_bowl_clear)
+  overall_bowl_summary[matches+1,6] = score(bowl_allrounder_bowl_clear)
+  overall_bowl_summary[matches+1,7] = score(bowler_bowl_clear)
+  
+  overall_bowl_summary[matches+1,8] = weight_score(all_bowl_bowl_clear)
+  overall_bowl_summary[matches+1,9] = weight_score(batsman_bowl_clear)
+  overall_bowl_summary[matches+1,10] = weight_score(bat_allrounder_bowl_clear)
+  overall_bowl_summary[matches+1,11] = weight_score(bowl_allrounder_bowl_clear)
+  overall_bowl_summary[matches+1,12] = weight_score(bowler_bowl_clear)
+  
+  #Indian Players
+  local_overall_bowl_summary[matches+1,3] = score(local_all_bowl_bowl_clear)
+  local_overall_bowl_summary[matches+1,4] = score(local_batsman_bowl_clear)
+  local_overall_bowl_summary[matches+1,5] = score(local_bat_allrounder_bowl_clear)
+  local_overall_bowl_summary[matches+1,6] = score(local_bowl_allrounder_bowl_clear)
+  local_overall_bowl_summary[matches+1,7] = score(local_bowler_bowl_clear)
+  
+  local_overall_bowl_summary[matches+1,8] = weight_score(local_all_bowl_bowl_clear)
+  local_overall_bowl_summary[matches+1,9] = weight_score(local_batsman_bowl_clear)
+  local_overall_bowl_summary[matches+1,10] = weight_score(local_bat_allrounder_bowl_clear)
+  local_overall_bowl_summary[matches+1,11] = weight_score(local_bowl_allrounder_bowl_clear)
+  local_overall_bowl_summary[matches+1,12] = weight_score(local_bowler_bowl_clear)
+  
+  #Indian Players
+  foreign_overall_bowl_summary[matches+1,3] = score(foreign_all_bowl_bowl_clear)
+  foreign_overall_bowl_summary[matches+1,4] = score(foreign_batsman_bowl_clear)
+  foreign_overall_bowl_summary[matches+1,5] = score(foreign_bat_allrounder_bowl_clear)
+  foreign_overall_bowl_summary[matches+1,6] = score(foreign_bowl_allrounder_bowl_clear)
+  foreign_overall_bowl_summary[matches+1,7] = score(foreign_bowler_bowl_clear)
+  
+  foreign_overall_bowl_summary[matches+1,8] = weight_score(foreign_all_bowl_bowl_clear)
+  foreign_overall_bowl_summary[matches+1,9] = weight_score(foreign_batsman_bowl_clear)
+  foreign_overall_bowl_summary[matches+1,10] = weight_score(foreign_bat_allrounder_bowl_clear)
+  foreign_overall_bowl_summary[matches+1,11] = weight_score(foreign_bowl_allrounder_bowl_clear)
+  foreign_overall_bowl_summary[matches+1,12] = weight_score(foreign_bowler_bowl_clear)
+  
+  print(paste0(matches," done"))
+}
+
+View(overall_bowl_summary)
+View(local_overall_bowl_summary)
+View(foreign_overall_bowl_summary)
+
+```
+
+```{r bowlsave2}
+openxlsx::write.xlsx(overall_bowl_summary, file = "Indiv Stats Ext/Group Bowl Stats Ext/Overall Bowl Summary.xlsx",sheetName ="Overall Bowl Summary", append = FALSE)
+openxlsx::write.xlsx(local_overall_bowl_summary, file = "Indiv Stats Ext/Group Bowl Stats Ext/Local Overall Bowl Summary.xlsx",sheetName ="Overall Bowl Summary", append = FALSE)
+openxlsx::write.xlsx(foreign_overall_bowl_summary, file = "Indiv Stats Ext/Group Bowl Stats Ext/Foreign Overall Bowl Summary.xlsx",sheetName ="Overall Bowl Summary", append = FALSE)
+
+```
+
+```{r bowlExt}
+add_scores = function(bowl_summary,var1,var2){
+    file_overall = file2 %>% merge(bowl_summary[,c("MatchNum",var1,var2)],by = "MatchNum") 
+    file_overall_sort = file_overall[order(file_overall$`Matches Played`),]
+    file_overall_sort$`Net Bowl Strength` = file_overall_sort$`Running Matches Played`/mom * file_overall_sort$`Bowling Strength` + (1 - file_overall_sort$`Running Matches Played`/mom) * file_overall_sort[[var1]]
+    file_overall_sort$`Net Weighted Bowl Strength` = file_overall_sort$`Running Matches Played`/mom * file_overall_sort$`Weighted Bowling Strength` + (1 - file_overall_sort$`Running Matches Played`/mom) * file_overall_sort[[var2]]
+    return(file_overall_sort)
+}
+
+#change to have a sepearate file for each player like before
+for (name in bowlnames$Player){
+  file = get(paste0(str_replace_all(name," ","_"),'_bowl_ext'))
+  rows=dim(file)[1]
+  #View(file)
+  split_point = which(stat_heads == 'Country')[[1]]
+  filelead = rbind(file[,c(1:split_point)],0)
+  fileoffset = rbind(0,file[,c((split_point+1):ncols)])
+  file2 = cbind(filelead,fileoffset)
+  file2[rows+1,2] = file2[rows,2]
+  #View(file2)
+  
+  cleaned_role = str_replace(profilered[tolower(profilered$Player) == tolower(name), "Position"],'WK-','')
+  country = profilered[tolower(profilered$Player) == tolower(name),"Country"]
+
+  if(country == "India"){
+    bowl_summary = local_overall_bowl_summary
+  }
+  else{
+    bowl_summary = foreign_overall_bowl_summary
+  }
+  
+  if(cleaned_role == "Batsman"){
+    ext_bowling_info = add_scores(bowl_summary,"Avg Batsman Bowl Strength","Avg Batsman Bowl Weighted Strength")
+    }
+  else if(cleaned_role == "Batting Allrounder"){
+    ext_bowling_info = add_scores(bowl_summary,"Avg Bat Allrounder Bowl Strength","Avg Bat Allrounder Bowl Weighted Strength")
+  }
+  else if(cleaned_role == "Bowling Allrounder"){
+    ext_bowling_info = add_scores(bowl_summary,"Avg Bowl Allrounder Bowl Strength","Avg Bowl Allrounder Bowl Weighted Strength")
+  }
+  else if(cleaned_role == "Bowler"){
+    ext_bowling_info = add_scores(bowl_summary,"Avg Bowler Bowl Strength","Avg Bowler Bowl Weighted Strength")
+  }
+  
+  new_file_name = paste0(str_replace_all(name," ","_"),'_bowl_ext') 
+  assign(paste0(str_replace_all(name," ","_"),'_bowl_ext'),ext_bowling_info)
+  openxlsx::write.xlsx(ext_bowling_info, file = paste0("Indiv Stats Ext/Bowl Stats Ext/",new_file_name,".xlsx"),sheetName ="Bowl Stats Ext", append = FALSE)
+}
+
+View(ext_bowling_info)
+
+```
+
+```{r savestate}
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+time.taken
+
+#Savestate so we don't have to rerun computationally intensive parts later
+save.image(file='Bowler Stats.RData')
+
+```
+
+```{r loadstate}
+#load(file='Bowler Stats.RData')
+
+```
+
+```{r runabove}
+```

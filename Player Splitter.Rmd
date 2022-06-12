@@ -1,0 +1,97 @@
+---
+title: "Player Splitter"
+author: "Arlton Gilbert"
+date: "23/05/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+#FILENUM: 5
+knitr::opts_chunk$set(echo = TRUE)
+#knitr::opts_knit$set(root.dir = dirname(rstudioapi::getActiveDocumentContext()$path))
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+library(stringr)
+library(tidyverse)
+#library(tidyr)
+#library(dplyr)
+#library("readxl")
+library("xlsx")
+library(rvest)
+#library(anytime)
+rm(list=ls())
+#Average Run Time ~ 4min
+
+```
+
+```{r clearprevious}
+#ensure old files are not left there
+do.call(file.remove, list(list.files("Indiv Stats/Bat Stats", full.names = TRUE)))
+do.call(file.remove, list(list.files("Indiv Stats/Bowl Stats", full.names = TRUE)))
+
+```
+
+```{r loadPlayerStats}
+#Savestate so we don't have to rerun computationally intensive parts later
+load(file='Player Stats.RData')
+start.time <- Sys.time()
+
+```
+
+```{r initialchecks}
+#View(batred)
+#View(bowlred)
+batnames = unique(batred["Player"])
+bowlnames = unique(bowlred["Player"])
+dim(batnames)[1] #check that it does tie up to files created in the folder
+dim(bowlnames)[1]
+
+
+setdiff(batnames,bowlnames) #no one
+setdiff(bowlnames,batnames) # 1 Player: Shrikant Mundhe
+#Reason was that he played a match (246) where it was abandoned during the first innings
+#so he was just on the bowling list
+
+```
+
+
+```{r batfiles}
+for (names in batnames$Player){
+  #role = profilered %>% filter(Player == names) %>% select("Position")
+  #battemp = cbind(batred[batred$Player == names,],role)
+  battemp = batred[batred$Player == names,]
+  write.xlsx(battemp, file = paste0("Indiv Stats/Bat Stats/",names," Bat.xlsx"),sheetName ="Bat", append = FALSE)
+  print(paste0(names," Bat done"))
+}
+View(battemp)
+
+```
+
+
+```{r bowlfiles}
+for (names in bowlnames$Player){
+  bowltemp = bowlred[bowlred$Player == names,]
+  write.xlsx(bowltemp, file = paste0("Indiv Stats/Bowl Stats/",names," Bowl.xlsx"),sheetName ="Bowl", append = FALSE)
+  print(paste0(names," Bowl done"))
+}
+View(bowltemp)
+
+```
+
+```{r savestate}
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+time.taken
+
+#Savestate so we don't have to rerun computationally intensive parts later
+save.image(file='Player Splitter.RData')
+
+```
+
+```{r loadstate}
+#Savestate so we don't have to rerun computationally intensive parts later
+#load(file='Player Splitter.RData')
+
+```
+
+```{r runabove}
+```

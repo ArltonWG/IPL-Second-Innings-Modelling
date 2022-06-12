@@ -1,0 +1,173 @@
+---
+title: "WebScraper"
+author: "Arlton Gilbert"
+date: "04/04/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+#FILENUM: 3
+knitr::opts_chunk$set(echo = TRUE)
+#knitr::opts_knit$set(root.dir = dirname(rstudioapi::getActiveDocumentContext()$path))
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+library(tidyverse)
+#library(tidyr)
+#library(dplyr)
+library("xlsx")
+library(readxl)
+library(rvest)
+library(anytime)
+rm(list=ls())
+start.time <- Sys.time()
+#Average Run Time ~ 35 Min
+
+```
+
+```{r clearprevious}
+#ensure old files are not left there
+do.call(file.remove, list(list.files("Match", full.names = TRUE)))
+
+```
+
+## About
+
+This file does the webscraping from 
+
+```{r children}
+
+crawler = function(rooter,all="no"){
+
+  children = rooter %>% html_children
+  children_len = length(children)
+
+  if (children_len == 0 | all == "yes"){
+    #if no children then it's a final node
+    
+    if ((rooter %>% html_text()) == ""){
+      #cannot seem to get this time converter working properly
+      temp = rooter %>% html_attr("timestamp")
+      m[row,column] <<- anytime(as.numeric(temp))#/1000)
+      if (is.na(temp)){
+        m[row,column] <<- ""
+      }
+    }
+    
+    else{
+      m[row,column] <<- str_trim(rooter %>% html_text())
+    }
+    column<<- column + 1
+
+    #move to next column after filling
+  }
+  
+  if(children_len > 0 & all != "yes"){
+    for (i in 1:children_len){
+      #for every child we run the function again
+      crawler(children[i])
+    }
+    
+    if (children_len != 1){
+      #leave a line after when there are multiple children
+      row<<- row + 1
+      column <<- 1      
+    }
+
+  }
+}
+
+```
+
+```{r innings_writer}
+innings = function(num,file){
+  #Innings num
+  row <<- 1
+  column <<- 1
+  m <<- (matrix('',nrow = 20,ncol = 10))
+  
+  (table_num =  matchi %>% html_nodes(paste0('#innings_',num)))
+  num_childs = length(table_num %>% html_children())
+  
+  if (num_childs > 0){
+    #batsmen info
+    crawler((table_num%>% html_children)[1])
+
+    if (num_childs > (2 + extra)){
+      #greater than 2 means we have wickets that fell until they added powerplay info
+      crawler((table_num%>% html_children)[2]) #fall of wickets heading
+      crawler((table_num%>% html_children)[3],"yes") #actual fall of wickets
+    }
+    write.xlsx(m, file = filename,sheetName = paste0("BatInnings",num), append = TRUE)
+    
+    #Reset for bowlers
+    row <<- 1
+    column <<- 1
+    m <<- (matrix('',nrow = 20,ncol = 10))
+    if (num_childs == (2 + extra)){
+      #no fall of wickets
+      crawler((table_num%>% html_children)[2])
+    }
+    else{
+      crawler((table_num%>% html_children)[4])  
+    }
+    write.xlsx(m, file = filename,sheetName =paste0("BowlInnings",num), append = TRUE)
+    }
+  }
+
+```
+
+```{r excel_loop}
+extra = 0#after match 584 they added powerplay info to scorecard
+schedule = read_xlsx(path = "Data/IPL_SCHEDULE_2008_2021.xlsx",sheet ="IPL_SCHEDULE_2008_2021")[,1:11]
+tot_matches = dim(schedule)[1]
+#for (i in c(1:dim(schedule)[1])){
+for (i in c(1:tot_matches)){
+  if (i >= 585){
+    #format change (after match 584 they added powerplay info to scorecard which is an additional field)
+    extra = 1
+  }
+  #initial connection
+  match = schedule$Match_Cricbuzz_URL[i]
+  match_scorecard = str_replace(str_replace(match, "live-cricket-scores", "live-cricket-scorecard"), "cricket-scores", "live-cricket-scorecard")
+
+  matchi = read_html(match_scorecard)
+  
+  #Match Result
+  row <- 1
+  column <- 1
+  m <- (matrix('',nrow = 100,ncol = 40))
+  (table_result =  matchi %>% html_nodes('.cb-scrcrd-status'))
+  crawler(table_result[length(table_result)])
+
+  #Match Info
+  row <- 3
+  column <- 1
+  (table_info =  matchi %>% html_nodes('.cb-col.cb-col-100.cb-font-13'))
+  crawler(table_info[length(table_info)]) # using 3 gave issues where either team didn't lose any wickets
+
+  filename = paste0("Match/Match ",i,".xlsx")
+
+  write.xlsx(m, file = filename,sheetName ="Info", append = FALSE)
+  innings(1,filename)
+  innings(2,filename)
+  print(paste("Match",i,"done"))
+  }
+
+```
+
+```{r savestate}
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+time.taken
+
+#Savestate so we don't have to rerun computationally intensive parts later
+save.image(file='WebScraper.RData')
+
+```
+
+```{r loadstate}
+#load(file='WebScraper.RData')
+
+```
+
+```{r runabove}
+```

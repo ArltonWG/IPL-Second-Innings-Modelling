@@ -1,0 +1,213 @@
+---
+title: "Stadiums"
+author: "Arlton Gilbert"
+date: "16/09/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+#FILENUM: 8
+knitr::opts_chunk$set(echo = TRUE)
+#knitr::opts_knit$set(root.dir = dirname(rstudioapi::getActiveDocumentContext()$path))
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+library("stringr")
+rm(list=ls())
+#Average Run Time ~ 12 second
+
+```
+
+```{r clearprevious}
+#ensure old files are not left there
+do.call(file.remove, list(list.files("Stadiums/Inn 1", full.names = TRUE)))
+do.call(file.remove, list(list.files("Stadiums/Inn 2", full.names = TRUE)))
+load(file='Player Stats.RData')
+#Average Run Time ~
+start.time <- Sys.time()
+
+```
+
+```{r matchmedian}
+#View(overview)
+overview_snip = overview
+overview_snip$FirstInn = as.numeric(str_split_fixed(overview$`First Inn Score`, "-", 2)[,1])
+overview_snip$SecondInn = as.numeric(str_split_fixed(overview$`Second Inn Score`, "-", 2)[,1])
+overview_snip = overview_snip[,c('MatchNum','Stadium','FirstInn','SecondInn')]
+#View(overview_snip)
+
+#View(overview[overview$MatchNum %in% c(41,65,226,436,483),])
+#View(overview[overview$MatchNum %in% c(40,62,93,196,236,516),])
+overview_red = overview_snip[!overview_snip$MatchNum %in% c(41,65,226,436,483),]#Remove matches where first inn not complete due to adverse conditions
+overview_red2 = overview_snip[!overview_snip$MatchNum %in% c(40,62,93,196,236,516),]#Remove matches where second inn not complete due to adverse conditions
+
+overview_snip1 = overview_snip[,c('MatchNum','Stadium','FirstInn')]
+overview_snip2 = overview_snip[,c('MatchNum','Stadium','SecondInn')]
+#View(overview_snip1)
+
+```
+
+```{r median_split}
+stad_names1 = unique(overview_snip1["Stadium"])
+stad_names2 = unique(overview_snip2["Stadium"])
+
+```
+
+```{r medfiles}
+#Innings1
+for (names in stad_names1$Stadium){
+  stadtemp = overview_snip1[overview_snip1$Stadium == names,]
+  assign(paste0(str_replace_all(str_replace_all(names," ","_"),",","_"),'_stadium1'),stadtemp)
+  #write.xlsx(battemp, file = paste0("Stadiums/First Inn/",names," First.xlsx"),sheetName ="Stadium", append = FALSE)
+  print(paste0(names," Stad 1 done"))
+}
+
+#Innings2
+for (names in stad_names2$Stadium){
+  stadtemp = overview_snip2[overview_snip2$Stadium == names,]
+  assign(paste0(str_replace_all(str_replace_all(names," ","_"),",","_"),'_stadium2'),stadtemp)
+  #write.xlsx(battemp, file = paste0("Stadiums/First Inn/",names," First.xlsx"),sheetName ="Stadium", append = FALSE)
+  print(paste0(names," Stad 2 done"))
+}
+
+#View(Green_Park__Kanpur_stadium2)
+
+```
+
+```{r median}
+#First Innings
+overview_snip1$Median = 0
+rows1 = dim(overview_snip1)[1]
+
+for (i in c(1:rows1)){
+  overview_snip1$Median[i]=median(overview_snip1$FirstInn[1:i]) 
+}
+View(overview_snip1)
+
+#Second Innings
+overview_snip2$Median = 0
+rows2 = dim(overview_snip2)[1]
+
+for (i in c(1:rows2)){
+  overview_snip2$Median[i]=median(overview_snip2$SecondInn[1:i]) 
+}
+View(overview_snip2)
+
+```
+
+```{r medoffset}
+ncols = 3
+phase = 5
+for (names in stad_names1$Stadium){
+  file = eval(as.name(paste0(str_replace_all(str_replace_all(names," ","_"),",","_"),'_stadium1')))
+  rows=dim(file)[1]
+  
+  #View(file)
+  split_point = 2
+  filelead = rbind(file[,c(1:split_point)],0)
+  fileoffset = rbind(0,file[,c(split_point:ncols)])
+  file2 = cbind(filelead,fileoffset[,2])
+  
+  for(i in c(1:rows)){
+    if(file2[i,'MatchNum'] == 1){ #first match exception
+      file2[i,4] = 0
+      next   
+    }
+    match_line = tail(overview_snip1$MatchNum[overview_snip1$MatchNum < file2[i,'MatchNum']],1)#last match number before current one
+    if (i == 1){
+      file2[i,4] = 0  
+    }
+    else{
+      file2[i,4] = median(file$FirstInn[1:i-1])
+    }
+    file2[i,5] = overview_snip1$Median[overview_snip1$MatchNum == match_line] #Overall Offset
+    file2[i,6] = i
+    file2[i,7] = file2[i,4] * min(phase,(i-1))/phase + file2[i,5] * (phase - min(phase,i-1))/phase  
+  }
+  
+  file2[rows+1,1] = '-'
+  file2[rows+1,2] = file2[rows,2]
+  
+  colnames(file2)[3] = 'Match_Off_1'
+  colnames(file2)[4] = 'Median_Off_1'
+  colnames(file2)[5] = 'Median_Tot_1'
+  colnames(file2)[6] = 'StadMatch'
+  colnames(file2)[7] = 'StadMedAvg_1'
+  stad1_name = paste0(str_replace_all(str_replace_all(names," ","_"),",","_"),'_stad1') 
+  assign(stad1_name,file2)
+  write.xlsx(file2, file = paste0("Stadiums/Inn 1/",stad1_name,".xlsx"),sheetName ="Stad1", append = FALSE)
+}  
+
+file2
+
+```
+
+```{r medoffset2}
+ncols = 3
+for (names in stad_names2$Stadium){
+  file = eval(as.name(paste0(str_replace_all(str_replace_all(names," ","_"),",","_"),'_stadium2')))
+  rows=dim(file)[1]
+  
+  #View(file)
+  split_point = 2
+  filelead = rbind(file[,c(1:split_point)],0)
+  fileoffset = rbind(0,file[,c(split_point:ncols)])
+  file2 = cbind(filelead,fileoffset[,2])
+  
+  for(i in c(1:rows)){
+    if(file2[i,'MatchNum'] == 1){ #first match exception
+      file2[i,4] = 0
+      next   
+    }
+    match_line = tail(overview_snip2$MatchNum[overview_snip2$MatchNum < file2[i,'MatchNum']],1)#last match number before current one
+    if (i == 1){
+      file2[i,4] = 0  
+    }
+    else{
+      file2[i,4] = median(file$SecondInn[1:i-1])
+    }
+    file2[i,5] = overview_snip2$Median[overview_snip1$MatchNum == match_line] #Overall Offset
+    file2[i,6] = i
+    file2[i,7] = file2[i,4] * min(phase,(i-1))/phase + file2[i,5] * (phase - min(phase,i-1))/phase  
+  }
+  
+  file2[rows+1,1] = '-'
+  file2[rows+1,2] = file2[rows,2]
+  
+  colnames(file2)[3] = 'Match_Off_2'
+  colnames(file2)[4] = 'Median_Off_2'
+  colnames(file2)[5] = 'Median_Tot_2'
+  colnames(file2)[6] = 'StadMatch'
+  colnames(file2)[7] = 'StadMedAvg_2'
+  stad2_name = paste0(str_replace_all(str_replace_all(names," ","_"),",","_"),'_stad2') 
+  assign(stad2_name,file2)
+  write.xlsx(file2, file = paste0("Stadiums/Inn 2/",stad2_name,".xlsx"),sheetName ="Stad2", append = FALSE)
+}  
+
+file2
+
+```
+
+```{todo}
+
+
+
+```
+
+```{r savestate}
+
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+time.taken
+
+#Savestate so we don't have to rerun computationally intensive parts later
+save.image(file='Stadiums.RData')
+
+```
+
+```{r loadstate}
+#load(file='Stadiums.RData')
+
+```
+
+```{r runabove}
+```
+

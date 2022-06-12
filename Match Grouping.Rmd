@@ -1,0 +1,209 @@
+---
+title: "Match Grouping"
+author: "Arlton Gilbert"
+date: "04/07/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+#FILENUM: 9
+knitr::opts_chunk$set(echo = TRUE)
+#knitr::opts_knit$set(root.dir = dirname(rstudioapi::getActiveDocumentContext()$path))
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+library(tidyverse)
+library("readxl")
+library(openxlsx)
+library("stringr")
+#Average Run Time ~ 8 second
+rm(list=ls())
+
+```
+
+```{r clearprevious}
+#ensure old files are not left there
+do.call(file.remove, list(list.files("Match Grouping", full.names = TRUE)))
+load(file='Batsmen Stats.RData')
+load(file='Bowler Stats.RData')
+load(file='Stadiums.RData')
+
+```
+
+```{r loadstate}
+#Average Run time ~ 20 secs
+start.time <- Sys.time()
+sink("Match Grouping/Log.txt")
+
+```
+
+```{r overstats}
+overstats = overview
+#tot_matches = 884 #Should come through in previous files
+
+for (i in c(1:tot_matches))
+{
+  if (!any(overview$MatchNum == i)){
+    print(paste0("Match ",i," skipped"))
+    next
+  }
+  match_row = which(overview$MatchNum == i)[1]
+  print(match_row)
+  for (j in c(14:24)){
+    player_name = str_replace_all(overview[match_row,j]," ","_")
+    player_stats = get(paste0(player_name,"_bat_ext"))
+    
+    overstats[match_row,j] = player_stats[player_stats$MatchNum == i,"Net Weighted Bat Strength"]
+  }
+  
+  for (j in c(25:35)){
+    player_name = str_replace_all(overview[match_row,j]," ","_")
+    player_stats = get(paste0(player_name,"_bowl_ext"))
+    overstats[match_row,j] = player_stats[player_stats$MatchNum == i,"Net Weighted Bowl Strength"]
+  }
+  if (is.na(overview[match_row,36])){
+    print(paste0("Match ",i, " second innings skipped"))
+  }
+  else{
+    for (j in c(36:46)){
+      player_name = str_replace_all(overview[match_row,j]," ","_")
+      player_stats = get(paste0(player_name,"_bat_ext"))
+      
+      overstats[match_row,j] = player_stats[player_stats$MatchNum == i,"Net Weighted Bat Strength"]  
+    }
+    
+    for (j in c(47:57)){
+      player_name = str_replace_all(overview[match_row,j]," ","_")
+      player_stats = get(paste0(player_name,"_bowl_ext"))
+      overstats[match_row,j] = player_stats[player_stats$MatchNum == i,"Net Weighted Bowl Strength"]
+    }
+    
+  }
+
+  print(paste0("Match ",i, " done"))
+}
+overstats[overstats == "NaN"] = NA
+#View(overview)
+#View(overstats)
+
+```
+
+```{r sums}
+overstats = overstats %>% dplyr::rename(Match = `Match `)
+overstats$`Bat1 Strength` = rowSums(as.data.frame(sapply(overstats[,14:24], as.numeric)),na.rm=TRUE)
+overstats$`Bowl1 Strength` = rowSums(as.data.frame(sapply(overstats[,25:35], as.numeric)),na.rm=TRUE)
+overstats$`Bat2 Strength` = rowSums(as.data.frame(sapply(overstats[,36:46], as.numeric)),na.rm=TRUE)
+overstats$`Bowl2 Strength` = rowSums(as.data.frame(sapply(overstats[,47:57], as.numeric)),na.rm=TRUE)
+
+stats_red = overstats[,-c(14:59)] #Also remove first innings strength
+
+#View(stats_red)
+
+```
+
+```{r matches}
+
+#matches with Duckworth Lewis
+redRows <- stats_red[grepl("dls|d/l|abandoned|no result", tolower(stats_red$Result)), ]
+stats_reduced = stats_red[!grepl("dls|d/l|abandoned|no result", tolower(stats_red$Result)),]
+dim(redRows)[1]
+dim(stats_reduced)[1]
+
+model_data = stats_reduced[!(is.na(stats_reduced$Result)),]
+#View(redRows)
+#model_data$Match = toupper(gsub("SUPERGIANTS","SUPERGIANT",ifelse(model_data$MatchNum < 645, gsub("CAPITALS","DAREDEVILS",model_data$Match), gsub("DAREDEVILS","CAPITALS",model_data$Match))))
+model_data$Match = gsub("SUPERGIANTS","SUPERGIANT", gsub("DAREDEVILS","CAPITALS",toupper(model_data$Match)))
+model_data$Time = as.factor(ifelse(substr(model_data$Time,1,2)<15,"Day","Day/Night"))
+model_data$`First Inn Score` = str_split_fixed(model_data$`First Inn Score`, "-", 2)[,1]
+model_data$`Second Inn Score` = str_split_fixed(model_data$`Second Inn Score`, "-", 2)[,1]
+model_data$Toss = gsub("SUPERGIANTS","SUPERGIANT", gsub("DAREDEVILS","CAPITALS",toupper(model_data$Toss)))
+model_data$`Defending Team` = ifelse(model_data$Decision == 'bat', model_data$Toss,str_replace(str_replace(model_data$`Match`,model_data$Toss,"")," VS ",""))
+model_data$`Chasing Team` = str_replace(str_replace(model_data$`Match`,model_data$`Defending Team`,"")," VS ","")
+model_data$`Defending Stadium` = ifelse(model_data$`Home Ground` == 'NEUTRAL','NEUTRAL', ifelse(model_data$`Home Ground` == model_data$`Defending Team`,'HOME','AWAY'))
+model_data$`Defending Toss` = as.factor(ifelse(model_data$`Defending Team` == toupper(model_data$Toss),"WON","LOST"))
+model_data$`Defending Result` = as.factor(ifelse(model_data$`First Inn Score` >= model_data$`Second Inn Score`,1,0))
+model_data = model_data %>% mutate_at(vars(`First Inn Score`,`Second Inn Score`), as.numeric)
+
+#changed all daredevils to capitals because it was just a name change
+model_data$Match = gsub("DAREDEVILS","CAPITALS",model_data$Match)
+model_data$`Home Team` = as.factor(toupper(gsub("DAREDEVILS","CAPITALS",model_data$`Home Team`)))
+model_data$`Away Team` = as.factor(toupper(gsub("DAREDEVILS","CAPITALS",model_data$`Away Team`)))
+model_data$Toss = as.factor(model_data$Toss)
+model_data$Result = gsub("DAREDEVILS","CAPITALS",model_data$Result)
+model_data$`Defending Team` = as.factor(model_data$`Defending Team`)
+model_data$`Chasing Team` = as.factor(model_data$`Chasing Team`)
+
+```
+
+```{r checks}
+table(model_data$`Home Team`)
+table(model_data$`Away Team`)
+table(model_data$`Toss`)
+table(model_data$`Defending Team`)
+table(model_data$`Chasing Team`)
+
+```
+
+```{r dimensions}
+dimensions = read_excel("Stadiums/Stadiums.xlsx",sheet = "Sheet1")
+
+```
+
+```{r innings}
+rows = dim(model_data)[1]
+for (i in c(1:rows)){
+  stad_name = str_replace_all(str_replace_all(model_data$Stadium[i]," ","_"),",","_")
+  stad_name1 = eval(as.name(paste0(stad_name,'_stad1')))
+  stad_name2 = eval(as.name(paste0(stad_name,'_stad2')))
+  
+  model_data$`First Median`[i] = stad_name1[stad_name1$MatchNum==model_data$MatchNum[i],"StadMedAvg_1"]
+  model_data$`Second Median`[i] = stad_name2[stad_name2$MatchNum==model_data$MatchNum[i],"StadMedAvg_2"]
+  model_data$`Ground Altitude`[i] = dimensions[dimensions$`Stadium Full`==model_data$Stadium[i],"Ground Altitude"] 
+  model_data$`Ground Length`[i] = dimensions[dimensions$`Stadium Full`==model_data$Stadium[i],"Ground Length"]   
+  model_data$`Ground Width`[i] = dimensions[dimensions$`Stadium Full`==model_data$Stadium[i],"Ground Width"]   
+}
+
+model_data$`First Inn Score` = as.numeric(model_data$`First Inn Score`)
+model_data$`First Median` = as.numeric(model_data$`First Median`)
+model_data$`Second Median` = as.numeric(model_data$`Second Median`)
+model_data$`Ground Altitude` = as.numeric(model_data$`Ground Altitude`)
+model_data$`Ground Length` = as.numeric(model_data$`Ground Length`)
+model_data$`Ground Width` = as.numeric(model_data$`Ground Width`)
+model_data$`First Inn Median` = as.numeric(model_data$`First Median`)
+model_data$`Second Inn Median` = as.numeric(model_data$`Second Median`)
+
+View(model_data)
+
+```
+
+```{r match_arranged}
+model_data_red = model_data[model_data$MatchNum >= 119,]
+str(model_data_red)
+View(model_data_red)
+
+data_format = model_data_red[,c('Defending Result','MatchNum','Defending Team','Chasing Team','Defending Stadium','Time','Defending Toss','Bat2 Strength','Bowl2 Strength','First Inn Score','First Inn Median','Second Inn Median','Ground Altitude','Ground Length','Ground Width')]
+View(data_format)
+
+```
+
+```{r writer}
+write.xlsx(data_format, file = "Match Data/Data Formatted.xlsx",sheetName ="Match", append = FALSE)
+
+```
+
+```{r savestate}
+sink()
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+time.taken
+
+#Savestate so we don't have to rerun computationally intensive parts later
+save.image(file='Match Grouping.RData')
+
+```
+
+```{r loadstate}
+#load(file='Match Grouping.RData')
+
+```
+
+```{r runabove}
+```

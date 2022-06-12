@@ -1,0 +1,299 @@
+---
+title: "EDA"
+author: "Arlton Gilbert"
+date: "01/04/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+#FILENUM: 11
+#knitr::opts_knit$set(root.dir = dirname(rstudioapi::getActiveDocumentContext()$path))
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+#Average Run Time ~ 15 sec
+library(tidyverse)
+library("xlsx")
+library(readxl)
+library(corrplot)
+library(ggplot2)
+rm(list=ls())
+
+load(file='Batsmen Stats.RData') #For best batsmen
+load(file='Modelling.RData')
+start.time <- Sys.time()
+
+```
+
+```{r loadMathcInfo}
+#load the fixture list and then breakdown in run-in, training and test     
+new_scorecards = read_xlsx(path = "Data/IPL_SCHEDULE_2008_2021.xlsx",sheet ="IPL_SCHEDULE_2008_2021")
+prep = new_scorecards[c(1:118),]
+train = new_scorecards[c(119:824),]
+test = new_scorecards[c(825:dim(new_scorecards)[1]),]
+
+#total matches
+t1 = dim(new_scorecards)[1] #884
+t2 = dim(prep)[1] #118
+t3 = dim(train)[1] #706
+t4 = dim(test)[1] #60
+
+# Abandoned before game
+a1 = dim(new_scorecards[grepl("Match abandoned without a ball bowled|Match abandoned without a ball being bowled|abandoned with a toss",
+                         new_scorecards$Match_Result),])[1] #8
+a2 = dim(prep[grepl("Match abandoned without a ball bowled|Match abandoned without a ball being bowled|abandoned with a toss",prep$Match_Result),])[1] #3 
+a3 = dim(train[grepl("Match abandoned without a ball bowled|Match abandoned without a ball being bowled|abandoned with a toss",train$Match_Result),])[1] #5
+a4 = dim(test[grepl("Match abandoned without a ball bowled|Match abandoned without a ball being bowled|abandoned with a toss",test$Match_Result),])[1] #0
+
+# Abandoned during game
+b1 = dim(new_scorecards[grepl("^Match abandoned$|^No result$", new_scorecards$Match_Result),])[1] #4
+b2 = dim(prep[grepl("^Match abandoned$|^No result$",prep$Match_Result),])[1] #0 
+b3 = dim(train[grepl("^Match abandoned$|^No result$",train$Match_Result),])[1] #4
+b4 = dim(test[grepl("^Match abandoned$|^No result$",test$Match_Result),])[1] #0
+
+# DLS
+c1 = dim(new_scorecards[grepl("method", new_scorecards$Match_Result),])[1] #18
+c2 = dim(prep[grepl("method",prep$Match_Result),])[1] #5 
+c3 = dim(train[grepl("method",train$Match_Result),])[1] #13
+c4 = dim(test[grepl("method",test$Match_Result),])[1] #0 
+
+# Match tied
+d1 = dim(new_scorecards[grepl("Match tied", new_scorecards$Match_Result),])[1] #14
+d2 = dim(prep[grepl("Match tied",prep$Match_Result),])[1] #1 
+d3 = dim(train[grepl("Match tied",train$Match_Result),])[1] #12
+d4 = dim(test[grepl("Match tied",test$Match_Result),])[1] #1
+
+# Remaing Matches
+t1 - a1 - b1 - c1 - d1 #840
+t2 - a2 - b2 - c2 - d2 #109
+t3 - a3 - b3 - c3 - d3 #672
+t4 - a4 - b4 - c4 - d4 #59
+
+```
+
+```{r dataStadium}
+#View(train_full)
+#Stadium
+factor_info_defend = train_full %>% group_by(`Defending Team`,`Defending Stadium`) %>% tally()
+factor_info_defend = factor_info_defend %>% pivot_wider(names_from = `Defending Stadium`, values_from = n, values_fill = list(n = 0))
+factor_info_defend = factor_info_defend %>% dplyr::rename(HOME_DEFEND = HOME, AWAY_DEFEND = AWAY, NEUTRAL_DEFEND = NEUTRAL)
+factor_info_defend$DEFEND = factor_info_defend$HOME_DEFEND + factor_info_defend$AWAY_DEFEND + factor_info_defend$NEUTRAL_DEFEND
+factor_info_defend = factor_info_defend %>% select(`Defending Team`, DEFEND, HOME_DEFEND, AWAY_DEFEND, NEUTRAL_DEFEND)
+factor_info_defend
+colSums(factor_info_defend[,-1])
+
+factor_info_chase = train_full %>% group_by(`Chasing Team`,`Defending Stadium`) %>% tally()
+factor_info_chase  = factor_info_chase %>% pivot_wider(names_from = `Defending Stadium`, values_from = n, values_fill = list(n = 0))
+factor_info_chase = factor_info_chase %>% dplyr::rename(HOME_CHASE = AWAY, AWAY_CHASE = HOME, NEUTRAL_CHASE = NEUTRAL)
+factor_info_chase$CHASE = factor_info_chase$AWAY_CHASE + factor_info_chase$HOME_CHASE + factor_info_chase$NEUTRAL_CHASE
+factor_info_chase = factor_info_chase %>% select(`Chasing Team`, CHASE, HOME_CHASE, AWAY_CHASE, NEUTRAL_CHASE)
+factor_info_chase
+colSums(factor_info_chase[,-1])
+
+factor_info = factor_info_defend
+factor_info$PLAYED = factor_info_defend$DEFEND + factor_info_chase$CHASE 
+factor_info$CHASE = factor_info_chase$CHASE
+factor_info$HOME = factor_info_defend$HOME_DEFEND + factor_info_chase$HOME_CHASE
+factor_info$AWAY = factor_info_defend$AWAY_DEFEND + factor_info_chase$AWAY_CHASE
+factor_info$NEUTRAL = factor_info_defend$NEUTRAL_DEFEND + factor_info_chase$NEUTRAL_CHASE
+
+factor_info
+
+factor_info_red = factor_info %>% select(TEAM = `Defending Team`, PLAYED, DEFEND, CHASE, HOME, AWAY, NEUTRAL)
+factor_info_red
+
+#Result
+
+```
+
+```{r dataTime}
+
+#Time
+factor_info_time_defend = train_full %>% group_by(`Defending Team`,`Time`) %>% tally()
+factor_info_time_defend  = factor_info_time_defend %>% pivot_wider(names_from = Time, values_from = n, values_fill = list(n = 0))
+factor_info_time_defend
+colSums(factor_info_time_defend[,-1])
+
+factor_info_time_chase = train_full %>% group_by(`Chasing Team`,`Time`) %>% tally()
+factor_info_time_chase  = factor_info_time_chase %>% pivot_wider(names_from = Time, values_from = n, values_fill = list(n = 0))
+factor_info_time_chase
+colSums(factor_info_time_chase[,-1])
+
+factor_info_red$DAY = factor_info_time_defend$Day + factor_info_time_chase$Day
+factor_info_red$`DAY/NIGHT` = factor_info_time_defend$`Day/Night` + factor_info_time_chase$`Day/Night`
+factor_info_red
+
+```
+
+```{r dataToss}
+
+#Toss
+factor_info_toss_defend = train_full %>% group_by(`Defending Team`,`Defending Toss`) %>% tally()
+factor_info_toss_defend  = factor_info_toss_defend %>% pivot_wider(names_from = `Defending Toss`, values_from = n, values_fill = list(n = 0))
+factor_info_toss_defend = factor_info_toss_defend %>% dplyr::rename(LOST_DEFEND = LOST, WON_DEFEND = WON)
+colSums(factor_info_toss_defend[,-1])
+
+factor_info_toss_chase = train_full %>% group_by(`Chasing Team`,`Defending Toss`) %>% tally()
+factor_info_toss_chase  = factor_info_toss_chase %>% pivot_wider(names_from = `Defending Toss`, values_from = n, values_fill = list(n = 0))
+factor_info_toss_chase = factor_info_toss_chase %>% dplyr::rename(LOST_CHASE = WON, WON_CHASE = LOST)
+colSums(factor_info_toss_chase[,-1])
+
+factor_info_red$`TOSS WON` = factor_info_toss_defend$`WON_DEFEND` + factor_info_toss_chase$`WON_CHASE`
+factor_info_red$`TOSS LOST` = factor_info_toss_defend$`LOST_DEFEND` + factor_info_toss_chase$`LOST_CHASE`
+factor_info_red
+
+colSums(factor_info_red[,-1])
+1002/(1002+368) * 100
+factor_info_red$DEFEND/factor_info_red$CHASE
+factor_info_red$`TOSS WON`/factor_info_red$`TOSS LOST`
+sort(unique(test_full$`Defending Team`))
+
+
+```
+
+```{r dataResult}
+
+#Change to result by team
+
+#Result
+factor_info_result_defend = train_full %>% group_by(`Defending Team`,`Defending Result`) %>% tally()
+factor_info_result_defend  = factor_info_result_defend %>% pivot_wider(names_from = `Defending Result`, values_from = n, values_fill = list(n = 0))
+factor_info_result_defend = factor_info_result_defend %>% dplyr::rename(LOST_DEFEND = `0`, WON_DEFEND = `1`)
+colSums(factor_info_result_defend[,-1])
+
+factor_info_result_chase = train_full %>% group_by(`Chasing Team`,`Defending Result`) %>% tally()
+factor_info_result_chase  = factor_info_result_chase %>% pivot_wider(names_from = `Defending Result`, values_from = n, values_fill = list(n = 0))
+factor_info_result_chase = factor_info_result_chase %>% dplyr::rename(LOST_CHASE = `1`, WON_CHASE = `0`)
+
+factor_info_red$`RESULT WON` = factor_info_result_defend$`WON_DEFEND` + factor_info_result_chase$`WON_CHASE`
+factor_info_red$`RESULT LOST` = factor_info_result_defend$`LOST_DEFEND` + factor_info_result_chase$`LOST_CHASE`
+factor_info_red
+
+```
+
+```{r winBreakdownStadium}
+#Win Breakdown
+win_info_stadium_defend = train_full %>% group_by(`Defending Result`,`Defending Stadium`) %>% tally()
+win_info_stadium_defend  = win_info_stadium_defend %>% pivot_wider(names_from = `Defending Stadium`, values_from = n, values_fill = list(n = 0))
+win_info_stadium_defend
+
+factor_info_result  = win_info_stadium_defend[2,]
+
+factor_info_result$HOME = (win_info_stadium_defend[win_info_stadium_defend$`Defending Result` == 1, "HOME"] + win_info_stadium_defend[win_info_stadium_defend$`Defending Result` == 0, "AWAY"])$HOME
+factor_info_result$AWAY = (win_info_stadium_defend[win_info_stadium_defend$`Defending Result` == 0, "HOME"] +  win_info_stadium_defend[win_info_stadium_defend$`Defending Result` == 1, "AWAY"])$HOME
+factor_info_result$NEUTRAL = (win_info_stadium_defend[win_info_stadium_defend$`Defending Result` == 0, "NEUTRAL"] + win_info_stadium_defend[win_info_stadium_defend$`Defending Result` == 1, "NEUTRAL"])$NEUTRAL
+factor_info_result$PLAYED = factor_info_result$HOME + factor_info_result$AWAY + factor_info_result$NEUTRAL
+
+factor_info_result
+
+factor_info_result$DEFEND = sum(as.numeric(train_full$`Defending Result`)-1)
+factor_info_result$CHASE = dim(train_full)[1] - factor_info_result$DEFEND
+
+factor_info_red2 = factor_info_result %>% select(c(PLAYED,DEFEND,CHASE,HOME,AWAY,NEUTRAL))
+factor_info_red2
+
+```
+
+```{r winBreakdownToss}
+win_info_toss = train_full %>% group_by(`Defending Result`,`Defending Toss`) %>% tally()
+win_info_toss
+win_info_toss  = win_info_toss %>% pivot_wider(names_from = `Defending Toss`, values_from = n, values_fill = list(n = 0))
+win_info_toss
+
+factor_info_red2$`TOSS WON` = (win_info_toss[win_info_toss$`Defending Result` == 0, "LOST"] + win_info_toss[win_info_toss$`Defending Result` == 1, "WON"])$LOST
+factor_info_red2$`TOSS LOST` = (win_info_toss[win_info_toss$`Defending Result` == 0, "WON"] +  win_info_toss[win_info_toss$`Defending Result` == 1, "LOST"])$WON
+
+factor_info_red2
+factor_info_red2$CHASE/(factor_info_red2$CHASE + factor_info_red2$DEFEND) * 100
+factor_info_red2$HOME/(factor_info_red2$HOME + factor_info_red2$AWAY) * 100
+factor_info_red2$`TOSS WON`/(factor_info_red2$`TOSS WON` + factor_info_red2$`TOSS LOST`) * 100
+
+```
+
+#Numeric Variables
+
+```{r numerics}
+str(train_full)
+train_full_numeric = train_full[,7:14]
+train_full_numeric
+
+```
+
+```{r corrplot}
+
+corr = cor(train_full_numeric)
+p1 = {
+  corrplot(corr,method="number",type = "upper",tl.cex = 0.8, tl.col = "black",cl.cex = 0.3,
+         number.cex = 0.8, tl.srt = 45, col=colorRampPalette(c("green","grey","blue"))(100))
+  mtext("Correlation Matrix", adj=0.5, cex=2)
+  recordPlot()
+}
+ggsave(filename ='Images/corr.jpg', plot = replayPlot(p1))
+
+```
+
+```{r bestbat}
+best_bat_mult = all_bat_bat_scores %>% filter(`Matches Played`>=mom) %>% arrange(desc(`Batting Strength`)) %>% head(20) 
+View(best_bat_mult)
+best_bat_mult_red = best_bat_mult %>% select("Player","Date","Team","Opponent")
+View(best_bat_mult_red)
+
+weighted_best_bat_mult = all_bat_bat_scores %>% filter(`Matches Played`>=mom) %>% arrange(desc(`Weighted Batting Strength`)) %>% head(20)
+View(weighted_best_bat_mult)
+
+#best batsmen with at least 5 games
+best_bat = all_bat_bat_scores %>% filter(`Matches Played`>=mom) %>% arrange(desc(`Batting Strength`)) %>% distinct(Player,.keep_all = TRUE) %>% head(20) 
+View(best_bat)
+
+weighted_best_bat = all_bat_bat_scores %>% filter(`Matches Played`>=mom) %>% arrange(desc(`Weighted Batting Strength`)) %>% distinct(Player,.keep_all = TRUE) %>% head(20)
+View(weighted_best_bat)
+
+
+```
+
+```{r firstInn}
+low_scores = train_full[train_full$`First Inn Score` < 119,]
+dim(low_scores)[1]
+
+low_results = low_scores[low_scores$`Defending Result` == 0,]
+dim(low_results)[1]
+
+high_scores = train_full[train_full$`First Inn Score` > 226,]
+dim(high_scores)[1]
+
+high_results = high_scores[high_scores$`Defending Result` == 0,]
+dim(high_results)[1]
+
+high_scores2 = train_full[train_full$`First Inn Score` > 212,]
+dim(high_scores2)[1]
+
+high_results2 = high_scores2[high_scores2$`Defending Result` == 0,]
+dim(high_results2)[1]
+
+```
+
+```{r firstInnSave}
+ggplot(train_full, aes(`First Inn Score`, `Defending Result`)) +
+  geom_point(aes(colour = factor(`Defending Result`))) +
+  theme(legend.position="none") + labs(title = 'Defending Result vs First Innings Score')  + theme(plot.title = element_text(hjust = 0.5))
+image_file = 'First Inn Score.jpg'
+ggsave(paste0('Images/',image_file))
+  
+```
+
+```{r savestate}
+
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+time.taken
+
+# Savestate so we don't have to rerun computationally intensive parts later
+save.image(file='EDA.RData')
+
+```
+
+```{r loadstate}
+#load(file='EDA.RData')
+
+```
+
+```{r runabove}
+```

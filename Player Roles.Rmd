@@ -1,0 +1,157 @@
+---
+title: "WebScraper"
+author: "Arlton Gilbert"
+date: "04/04/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+#FILENUM: 2
+knitr::opts_chunk$set(echo = TRUE)
+#knitr::opts_knit$set(root.dir = dirname(rstudioapi::getActiveDocumentContext()$path))
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+library(tidyverse)
+library("xlsx")
+library(readxl)
+library(rvest) #used for webscraping 
+rm(list=ls())
+start.time <- Sys.time()
+#Average Run Time ~ 35min
+```
+
+```{r clearprevious}
+#ensure old files are not left there
+do.call(file.remove, list(list.files("Player Roles", full.names = TRUE)))
+
+```
+
+## About
+
+This file gets the player roles and link to their profile
+
+```{r excel_loop}
+extra = 0#after match 584 they added powerplay info to scorecard
+schedule = read_xlsx(path = "Data/IPL_SCHEDULE_2008_2021.xlsx",sheet ="IPL_SCHEDULE_2008_2021")[,1:11]
+profilelist <- setNames(data.frame(matrix(ncol = 5, nrow = 1000*22)),c("Match","Player","Profile","Position","Country"))
+pl = 1
+tot_matches = dim(schedule)[1]
+#824 matches
+for (i in c(1:tot_matches))
+  {
+  #initial connection
+  
+  match = schedule$Match_Cricbuzz_URL[i]
+  match_scorecard = str_replace(str_replace(match, "live-cricket-scores", "live-cricket-scorecard"), "cricket-scores", "live-cricket-scorecard")
+  matchi = read_html(match_scorecard)
+  
+    table_result =  matchi %>% html_nodes(".margin0.text-black.text-hvr-underline") %>% html_attr('href')
+  
+    for (profile in table_result){
+      if (str_detect(profile,"profile"))
+      {
+        full_profile = paste0("https://www.cricbuzz.com",profile)
+        if (full_profile %in% profilelist[1:pl,"Profile"]){
+          next
+        }
+        profile_i = read_html(full_profile)
+        roles =  profile_i %>% html_nodes('.cb-lst-itm-sm')
+        name = str_trim(profile_i %>% html_nodes('.cb-font-40') %>% html_text())
+        country =  str_trim(profile_i %>% html_nodes('.cb-font-18') %>% html_text())
+        found = 0        
+        for (role in roles){
+          temp = str_trim(role %>% html_text())
+          if (found == 1)
+          {
+            profilelist[pl,1] = i #matchnum
+            profilelist[pl,2] = name # Name
+            profilelist[pl,3] = full_profile # Profile
+            profilelist[pl,4] = temp # Position   
+            profilelist[pl,5] = country # Country   
+            pl = pl + 1
+            break
+          }
+          if (temp == "Role"){
+            found = 1  
+          }
+        }
+      }
+    }
+    print(paste("Match",i,"done"))
+  }
+
+
+profileshort = profilelist[1:pl-1,]
+View(profileshort)
+
+```
+
+```{r manual_edits}
+table(profileshort$Position) #these have many duplicates though
+View(profileshort %>% filter(Position == "--"))
+View(profileshort %>% filter(Country == ""))
+
+#The players below are duplicated 
+profileshort[duplicated(profileshort$Player),]$Player
+#The one Amit Mishra and the one Jaskaran Singh never actually played games and this is coming from their appearances on the bench
+#KL Rahul has a separate profile for his full name Lokesh Rahul which is rarely used and we have an exception in our other code to make it just KL Rahul so the Lokesh profile will be removed
+#Prithvi Raj Yarra is called Yarra Prithviraj in the 2 matches that he played and also has 2 profiles both under name Yarra Prithviraj
+#Prabsimran Singh has his name in matches just as Simran Singh
+#Varun Chakaravarthy sometimes called Varun Chakravarthy
+#K Khaleel Ahmed is sometimes known as Khaleel Ahmed, same issues as KL Rahul and handled in the same way
+#One player had country listed as Austrlia
+
+#Cricinfo doesn't differentiate between type of all rounder
+profilered = profileshort %>%
+    mutate(Position = ifelse(Player %in% c("VVS Laxman","Rohan Gavaskar","Dheeraj Jadhav"), "Batsman", Position)) %>%
+    mutate(Position = ifelse(Player %in% c("Justin Kemp","Sridharan Sriram"), "Batting Allrounder", Position))  %>%
+  mutate(Position = ifelse(Player %in% c("Sunil Joshi","James Hopes","Andrew Flintoff","Shrikant Wagh"), "Bowling Allrounder", Position)) %>%
+    mutate(Position = ifelse(Player %in% c("Nuwan Zoysa","Makhaya Ntini","Chetanya Nanda","Charl Langeveldt","Shane Bond","Nayan Doshi","Doug Bollinger","Santosh Yadav","Imtiaz Ahmed"), "Bowler", Position)) %>%  
+  mutate(Country = ifelse(Player == "Doug Bollinger","Austrlia", Country)) %>%
+    mutate(Country = ifelse(Player == "Shrikant Wagh","India", Country)) %>%
+  mutate(Player = ifelse(Player == "Prithvi Raj Yarra","Yarra Prithviraj", Player)) %>%
+  mutate(Player = ifelse(Player == "Simran Singh","Prabhsimran Singh", Player)) %>%
+  mutate(Country = ifelse(Country == "Austrlia","Australia", Country)) %>%
+  filter(!Profile %in% c('https://www.cricbuzz.com/profiles/9668/amit-mishra','https://www.cricbuzz.com/profiles/10866/jaskaran-singh',
+                         'https://www.cricbuzz.com/profiles/8733/lokesh-rahul','https://www.cricbuzz.com/profiles/13113/prithvi-raj-yarra',
+                         'https://www.cricbuzz.com/profiles/10952/k-khaleel-ahmed','https://www.cricbuzz.com/profiles/14254/simran-singh',
+                         'https://www.cricbuzz.com/profiles/12926/varun-chakravarthy'))
+  
+profilered[duplicated(profilered$Player),]$Player #No duplicates now
+profilered[duplicated(profilered$Profile),]$Profile #No duplicates now
+
+table(profilered$Position)
+table(profilered$Country)
+#head(profilered,40)
+View(profilered)
+
+```
+
+```{r savestate}
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+time.taken
+
+#Savestate so we don't have to rerun computationally intensive parts later
+save.image(file='Player Roles.RData')
+
+```
+
+```{r loadstate}
+#Savestate so we don't have to rerun computationally intensive parts later
+#load(file='Player Roles.RData')
+
+```
+
+```{r saveExcel}
+write.xlsx(profilered, file = "Player Roles/profilelist.xlsx",sheetName ="profilelist", append = FALSE)
+
+```
+
+```{r checks}
+
+
+```
+
+
+```{r runabove}
+```

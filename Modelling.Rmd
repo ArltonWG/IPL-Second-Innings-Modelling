@@ -1,0 +1,1303 @@
+---
+title: "Modelling"
+author: "Arlton Gilbert"
+date: "12/08/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+#FILENUM: 10
+knitr::opts_chunk$set(echo = TRUE)
+library(readxl)
+library(tidyverse)
+#library(ROCR)
+library(glmnet)
+library(tree)
+library(reshape)
+library(e1071) # svm and naive bayes
+library(factoextra) # convex hull plotting
+library(neuralnet)
+library(lava) #for trim
+library(naivebayes)
+#knitr::opts_knit$set(root.dir = dirname(rstudioapi::getActiveDocumentContext()$path))
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+#Average Run Time ~ 5 min
+rm(list=ls())
+start.time <- Sys.time()
+
+```
+
+```{r clearprevious}
+#load(file='Match Grouping.RData')
+data_format = read_xlsx(path = "Match Data/Data Formatted.xlsx",sheet ="Match")
+data_format = data_format %>% select(-one_of('MatchNum','...1')) #Remove the MatchNum
+#Make the appropriate variables factors again, lost when we changed to reading from Excel
+data_format$`Defending Team` = as.factor(data_format$`Defending Team`)
+data_format$`Chasing Team` = as.factor(data_format$`Chasing Team`)
+data_format$`Defending Stadium` = as.factor(data_format$`Defending Stadium`)
+data_format$`Time` = as.factor(data_format$`Time`)
+data_format$`Defending Toss` = as.factor(data_format$`Defending Toss`)
+data_format$`Defending Result` = as.factor(data_format$`Defending Result`)
+View(data_format)
+str(data_format)
+#Average Run time ~ 
+
+```
+
+```{r split_data} 
+
+#Split into train and test
+train_full = data_format[c(1:684),]
+test_full = data_format[c(685:dim(data_format)[1]),] #the last season of results
+
+```
+
+```{r FirstInn}
+train_first = train_full %>% select(c('Defending Result','First Inn Score'))
+ggplot(train_first, aes(x=`First Inn Score`,y=`Defending Result`)) + geom_point()
+
+test_first = test_full %>% select(c('Defending Result','First Inn Score'))
+ggplot(test_first, aes(x=`First Inn Score`,y=`Defending Result`)) + geom_point()
+
+```
+
+```{r standardise}
+#Set numeric columns with mean 0 and sd 1
+train_full_st = train_full
+test_full_st = test_full
+
+for (i in names(train_full[,c(7:14)])){
+  train_col = train_full[[i]]
+  train_col_mean = mean(train_col)
+  train_col_sd = sd(train_col)
+  
+  train_full_st[[i]] =(train_full_st[[i]] - train_col_mean)/train_col_sd
+  test_full_st[[i]] =(test_full_st[[i]] - train_col_mean)/train_col_sd
+}
+
+```
+
+```{r logformat}
+
+#Format needed for logistic regression
+f <- as.formula(`Defending Result` ~ .)
+Y_train = train_full_st$`Defending Result`
+X_train_st = model.matrix(f, train_full_st)[, -1]
+str(as_tibble(X_train_st))
+
+Y_test = test_full_st$`Defending Result`
+X_test_st = model.matrix(f, test_full_st)[, -1]
+
+```
+
+#Logistic Regression
+
+```{r Logistic}
+# Logistic Regression with Lasso Penalty
+set.seed(1)
+model_lr <- glmnet(X_train_st, Y_train, alpha = 1, standardize = FALSE, family = 'binomial')
+#alpha = 1 is lasso and alpha = 0 is ridge
+
+# 10-fold CV results for Logistic Regression with Lasso Penalty
+set.seed(1)
+cv_lr <- cv.glmnet(X_train_st, Y_train, alpha = 1, nfolds = 10, type.measure = 'mse', 
+                standardize = F, family = 'binomial')
+```
+
+```{r LogisticDoc, include = TRUE, eval = TRUE}
+#Cross Validation Errors
+par(mfrow=c(1,2))
+plot(model_lr, xvar = 'lambda', label=TRUE)
+plot(cv_lr)
+
+```
+
+```{r LogisticDoc2, include = FALSE, eval = TRUE}
+round(log(cv_lr$lambda.min),4)
+round(coef(model_lr, s = cv_lr$lambda.min),4)
+round(exp(coef(model_lr, s = cv_lr$lambda.min)),4) # Odds effect
+
+```
+
+```{r predict}
+# Predict under standard LR:
+# LASSO with lambda chosen by CV:
+pi_hat_cv <- predict(model_lr, newx = X_train_st,s = cv_lr$lambda.min, type = 'response')
+Y_hat_cv <- ifelse(pi_hat_cv >= 0.5, 1, 0)
+
+# Now calculate classification rate:
+(N <- length(Y_train))
+(Acc_cv <- mean(Y_hat_cv==Y_train))
+
+```
+
+```{r auc}
+# Just use balance to visualise effect of threshold change
+# Subsample for easier illustration
+
+# For the first LR model:
+#loading the ROCR package causes issues with the plot function
+pred_cv <- ROCR::prediction(pi_hat_cv, Y_train)
+perf_cv  <- ROCR::performance(pred_cv, 'tpr', 'fpr')
+
+ROCR::performance(pred_cv, measure = 'auc')@y.values[[1]]
+
+# When the threshold was 0.8
+Y_hat_1l <- ifelse(pi_hat_cv >= 0.8, 1, 0)
+tab1 <- table(Y_hat_1l, Y_train, dnn = c('predict', 'true'))
+tpr1 <- tab1[2,2]/sum(Y_train == 1)
+fpr1 <- tab1[2,1]/sum(Y_train == 0)
+
+# When the threshold was 0.2
+Y_hat_2l <- ifelse(pi_hat_cv >= 0.2, 1, 0)
+tab2 <- table(Y_hat_2l, Y_train, dnn = c('predict', 'true'))
+tpr2 <- tab2[2,2]/sum(Y_train == 1)
+fpr2 <- tab2[2,1]/sum(Y_train == 0)
+```
+
+```{r aucdoc, include = TRUE, eval = TRUE}
+plot(perf_cv, colorize = FALSE, col = 'black')
+lines(c(0,1), c(0,1), col = 'gray', lty = 4)
+
+points(tpr1 ~ fpr1, col = 'red', pch = 16)
+points(tpr2 ~ fpr2, col = 'red', pch = 16)
+
+text(tpr1 ~ fpr1, labels = 0.8, pos = 4)
+text(tpr2 ~ fpr2, labels = 0.2, pos = 4)
+```
+
+A perfect classifier would perfectly predict all positive cases and never falsely identify and observation as positive. Such a classifier would lie on the top left corner of the graph. In choosing our model we therefore want one as close to this as possible. To do this we first start by trial and error to find 2 points on either side of our ideal point which we have shown on the graph. We then loop from one point to the other finding the minimum distance to the top left (0,1). In our case we can calculate this cutoff to be the point *0.2964*
+
+```{r optimal}
+myfunc <- function(x) {
+  # Change decision rule to 0.2
+  Y_hat_3 <-  ifelse(pi_hat_cv >= x, 1, 0)
+  # When the threshold was x
+  tab3 <- table(Y_hat_3, Y_train, dnn = c('predict', 'true'))
+  tpr3 <- tab3[2,2]/sum(Y_train == 1)
+  fpr3 <- tab3[2,1]/sum(Y_train == 0)
+  return (c(tpr3,fpr3))
+}
+
+mindist = 1000000
+champ = 0
+champvals = c(0,0)
+for (i in seq (from=0.8, to=0.2, by = -0.0001)) {
+  store = myfunc(i)
+  dist = (1 - store[1])^2 + (store[2])^2
+  if (dist < mindist){
+    mindist = dist
+    champ = i
+    champvals = store
+  }
+}
+
+round(champ,4)
+champvals
+# For the LASSO
+ROCR::performance(pred_cv, measure = 'auc')@y.values[[1]]
+
+#need to do the cycling over
+```
+
+```{r auc2}
+# When the threshold was 0.02
+Y_hat_3l <- ifelse(pi_hat_cv >= champ, 1, 0)
+tab3 <- table(Y_hat_3l, Y_train, dnn = c('predict', 'true'))
+tpr3 <- tab3[2,2]/sum(Y_train == 1)
+fpr3 <- tab3[2,1]/sum(Y_train == 0)
+
+```
+
+```{r auc2ext}
+points(tpr3 ~ fpr3, col = 'green', pch = 16)
+text(tpr3 ~ fpr3, labels = champ, pos = 4)
+```
+
+```{r predict2}
+# Predict under standard LR:
+# LASSO with lambda chosen by CV:
+set.seed(1)
+pi_hat_cv2 <- predict(model_lr, newx = X_train_st,s = cv_lr$lambda.min, type = 'response')
+Y_hat_cv2 <- ifelse(pi_hat_cv >= 0.5, 1, 0)
+#Y_hat_cv2 <- ifelse(pi_hat_cv >= champ, 1, 0)
+
+# Now calculate classification rate:
+Acc_cv2 <- mean(Y_hat_cv2==Y_train)
+
+```
+
+```{r predicttest}
+# LASSO with lambda chosen by CV:
+pi_hat_cv_test <- predict(model_lr, newx = X_test_st,s = cv_lr$lambda.min, type = 'response')
+
+Y_hat_cv_test <- ifelse(pi_hat_cv_test >= 0.5, 1, 0)
+#Y_hat_cv_test <- ifelse(pi_hat_cv_test >= champ, 1, 0)
+
+# Now calculate classification rate:
+Acc_cv_test <- mean(Y_hat_cv_test==Y_test)
+
+```
+
+```{r predictdoc}
+round(Acc_cv2*100,4)
+round(Acc_cv_test*100,4)
+
+```
+
+```{r BaseBand}
+#This will be used to populate the full list of bands
+Band_Full = data.frame(c('<0 - 0.1','<0.1 - 0.2','<0.2 - 0.3','<0.3 - 0.4','<0.4 - 0.5','<0.5 - 0.6','<0.6 - 0.7','<0.7 - 0.8','<0.8 - 0.9','<0.9 - 1'))
+colnames(Band_Full) = 'Band'
+
+```
+
+```{r predictLogChart}
+pred_test_log = as_tibble(pi_hat_cv_test)
+colnames(pred_test_log) = "Pred"
+pred_test_log["LowerHelp"] = floor(pred_test_log["Pred"] * 10) / 10
+pred_test_log["Lower"] = paste0("<",pred_test_log$LowerHelp)
+pred_test_log["Upper"] = pred_test_log["LowerHelp"] + 0.1
+pred_test_log["Band"] = paste0(pred_test_log$Lower," - ",pred_test_log$Upper)
+pred_test_log["Result"] = Y_test
+pred_test_log["Prediction"] = Y_hat_cv_test
+pred_test_log["Corr"] = ifelse(Y_hat_cv_test == Y_test,1,0)
+pred_test_log["Incorr"] = 1 - pred_test_log["Corr"]
+
+pred_test_log2 = pred_test_log %>% 	group_by(Band) %>%	summarise(Incorrect = sum(Incorr),Correct = sum(Corr))
+
+df_log = merge(x=Band_Full,y=pred_test_log2,by="Band",all=TRUE,sort=TRUE)
+df_log$Correct = ifelse(is.na(df_log$Correct),0,df_log$Correct)
+df_log$Incorrect = ifelse(is.na(df_log$Incorrect),0,df_log$Incorrect)
+df_log$Band = as.character(df_log$Band)
+df_log$Band[1] = '0 - 0.1'
+df_log$Band = factor(df_log$Band, levels = df_log$Band)
+
+sum(df_log$Correct)
+sum(df_log$Incorrect)
+
+```
+
+```{r plottLogChart}
+
+melted_log = melt(as.data.frame(df_log), id="Band")
+
+ggplot(melted_log,aes(x=Band,y=value,fill=variable)) + geom_bar(stat="identity", alpha=.3) + xlab("Prediction Probability")+ ylab("Count") + scale_fill_manual(values = c("34BE82", "#52854C")) + labs(fill='Legend') +
+scale_x_discrete(guide = guide_axis(n.dodge=2)) + scale_y_continuous(breaks = seq(0, 12, by = 1)) + 
+ggtitle("Distribution of Predictions for Logistic Regression") + theme(plot.title = element_text(hjust = 0.5)) 
+
+image_file = 'Logistic.jpg'
+ggsave(paste0('Images/',image_file))
+ggsave(paste0('C:/Users/arlto/Google Drive/Arlton Gilbert MSc/Write-up/Current Version/images/',image_file))
+
+```
+
+## Classification Tree
+
+```{r classtreedata}
+#change to format needed by classification tree
+train_tree = train_full
+colnames(train_tree) <- make.names(colnames(train_tree)) #Has an issue with the col names
+train_tree$Defending.Result = as.factor(ifelse(train_tree$Defending.Result == 0,"No", "Yes"))
+
+test_tree = test_full
+colnames(test_tree) <- make.names(colnames(test_tree)) #Has an issue with the col names
+test_tree$Defending.Result = as.factor(ifelse(test_tree$Defending.Result == 0,"No", "Yes"))
+
+```
+
+```{r classtree}
+set.seed(1)
+tree_g <- tree(Defending.Result ~ ., data = train_tree, split = 'gini')
+
+# and using deviance reduction as splitting criterion
+tree_d <- tree(Defending.Result ~ ., data = train_tree, split = 'deviance', 
+                    control = tree.control(nrow(train_tree), mindev = 0.005))
+
+# First using Gini index
+summary(tree_g) 
+tree_g
+
+# And using deviance
+summary(tree_d) 
+tree_d
+
+```
+
+```{r classtreedoc, include = TRUE, out.width = "80%",eval = TRUE}
+par(mfrow=c(1,1))
+plot(tree_g,type = "uniform", main = "Class Tree using Gini")
+text(tree_g, cex=0.6) #BIG, messy tree!
+
+# Remember, Gini doesn't take into account the number of observations in each resulting node
+# Here we see that "good" gini splits early on lead to very little reduction in the deviance
+# Gini trees very big and messy which reduces understandability
+
+```
+
+```{r classtreedoc2, include = TRUE, out.width = "80%",eval=TRUE}
+plot(tree_d,type = "uniform", main = "Class Tree using Deviance") 
+text(tree_d, cex=0.9, pretty = 0) #Much more sensible
+#Similar problem with Deviance here
+
+```
+
+```{r prunepred}
+yhat_untree_train <- predict(tree_d, train_tree, type = 'class') #type argument nb for classification!
+
+# Predict on test set
+yhat_untree_test <- predict(tree_d, test_tree, type = 'class') #type argument nb for classification!
+
+#Check
+(c_mat_un <- table(yhat_untree_train, train_tree$Defending.Result))
+sum(diag(c_mat_un))/nrow(train_tree)*100 #classification accuracy
+
+```
+
+```{r predicttreevalid}
+Acc_untree_train <- mean(yhat_untree_train==train_tree$Defending.Result)
+# Now calculate classification rate:
+Acc_untree_test <- mean(yhat_untree_test==test_tree$Defending.Result)
+
+```
+
+```{r predicttreedoc}
+round(Acc_untree_train*100,4)
+round(Acc_untree_test*100,4)
+
+```
+
+## Pruning
+
+We must prune our tree to avoid overfitting. In order to do this we use cross validation using the classification rate to pick the optimal number of terminal nodes.
+
+```{r classtreecv,include = FALSE}
+# (2) Cost complexity pruning
+set.seed(1)
+cv_tree <- cv.tree(tree_d, FUN = prune.misclass) #use classification error rate for pruning
+
+```
+
+```{r classtreecvdoc, include = TRUE, eval=TRUE}
+# Make the plot look nice
+plot(cv_tree$size, cv_tree$dev, type='o', pch = 16, col = 'navy', lwd = 2,
+     xlab='Number of terminal nodes', ylab='CV error', main = 'Cross Validation Error vs Number of Terminal Nodes')
+cv_tree$k[1]<-0
+alpha <- round(cv_tree$k,1)
+#axis(side=1, at=seq(0, 40, by = 2),  col = NA, col.ticks = 2)
+axis(3, at=cv_tree$size, lab=alpha, cex.axis=0.8)
+mtext(expression(alpha), 3, line=2.5, cex=1.2)
+axis(side = 1, at = seq(0,max(cv_tree$size)+1, by =2), col.ticks = 2)
+tree_T <- cv_tree$size[which.min(cv_tree$dev)] #The minimum CV Error
+abline(v = T, lty = 2, lwd = 2, col = 'red')
+
+```
+
+```{r prune}
+# (3) Prune the tree
+pr_tree <- prune.misclass(tree_d, best = tree_T)
+pr_tree
+plot(pr_tree)
+text(pr_tree, pretty = 0)
+
+```
+
+```{r prunepred}
+yhat_tree_train <- predict(pr_tree, train_tree, type = 'class') #type argument nb for classification!
+
+# Predict on test set
+yhat_tree_test <- predict(pr_tree, test_tree, type = 'class') #type argument nb for classification!
+
+#Check
+(c_mat <- table(yhat_tree_train, train_tree$Defending.Result))
+sum(diag(c_mat))/nrow(train_tree)*100 #classification accuracy
+
+```
+
+```{r predicttreevalid}
+Acc_tree_train <- mean(yhat_tree_train==train_tree$Defending.Result)
+# Now calculate classification rate:
+Acc_tree_test <- mean(yhat_tree_test==test_tree$Defending.Result)
+
+```
+
+```{r predicttreedoc}
+round(Acc_tree_train*100,4)
+round(Acc_tree_test*100,4)
+
+```
+
+```{r classTreePre}
+# Predict on test set
+yhat_tree_test_vec <- predict(pr_tree, test_tree, type = 'vector') #type argument nb for classification!
+pi_hat_tree_test = yhat_tree_test_vec[,1]
+
+```
+
+```{r predictLogChart}
+pred_test_tree = as_tibble(pi_hat_tree_test)
+
+colnames(pred_test_tree) = "Pred"
+pred_test_tree["LowerHelp"] = floor(pred_test_tree["Pred"] * 10) / 10
+pred_test_tree["Lower"] = paste0("<",pred_test_tree$LowerHelp)
+pred_test_tree["Upper"] = pred_test_tree["LowerHelp"] + 0.1
+pred_test_tree["Band"] = paste0(pred_test_tree$Lower," - ",pred_test_tree$Upper)
+pred_test_tree["Result"] = Y_test
+pred_test_tree["Prediction"] = Y_hat_cv_test
+pred_test_tree["Corr"] = ifelse(Y_hat_cv_test == Y_test,1,0)
+pred_test_tree["Incorr"] = 1 - pred_test_tree["Corr"]
+
+pred_test_tree2 = pred_test_tree %>% 	group_by(Band) %>%	summarise(Incorrect = sum(Incorr),Correct = sum(Corr))
+
+df_tree = merge(x=Band_Full,y=pred_test_tree2,by="Band",all=TRUE,sort=TRUE)
+df_tree$Correct = ifelse(is.na(df_tree$Correct),0,df_tree$Correct)
+df_tree$Incorrect = ifelse(is.na(df_tree$Incorrect),0,df_tree$Incorrect)
+df_tree$Band = as.character(df_tree$Band)
+df_tree$Band[1] = '0 - 0.1'
+df_tree$Band = factor(df_tree$Band, levels = df_tree$Band)
+
+sum(df_tree$Correct)
+sum(df_tree$Incorrect)
+
+```
+
+```{r plotttreeChart}
+
+melted_tree = melt(as.data.frame(df_tree), id="Band")
+
+ggplot(melted_tree,aes(x=Band,y=value,fill=variable)) + geom_bar(stat="identity", alpha=.3) + xlab("Prediction Probability")+ ylab("Count") + scale_fill_manual(values = c("34BE82", "#52854C")) + labs(fill='Legend') +
+scale_x_discrete(guide = guide_axis(n.dodge=2)) + scale_y_continuous(breaks = seq(0, 34, by = 1)) + 
+ggtitle("Distribution of Predictions for Classification Trees") + theme(plot.title = element_text(hjust = 0.5)) 
+
+image_file = 'tree.jpg'
+ggsave(paste0('Images/',image_file))
+ggsave(paste0('C:/Users/arlto/Google Drive/Arlton Gilbert MSc/Write-up/Current Version/images/',image_file))
+
+```
+
+#Bagging
+
+```{r Bagging}
+library(randomForest)
+### Week 6: Bagging & Random Forests
+
+### Classification example
+
+## Fit a bagged trees model
+bag_cric <- randomForest(Defending.Result ~ ., data = train_tree, 
+                    mtry = ncol(train_tree) - 1, #for bagging, use all predictors
+                    ntree = 1000, #number of trees
+                    importance = TRUE, #keep track of reduction in loss function
+                    do.trace = 100)  #print out regular progress
+                    # and more (see ?randomForest)
+bag_cric
+
+## Choose number of trees:
+head(bag_cric$err.rate)
+```
+
+```{r BaggingDoc,include = TRUE,eval=TRUE}
+plot(bag_cric$err.rate[, 'OOB'], type = 's', xlab = 'Number of trees', ylab = 'OOB error',main = 'Bagging OOB error vs Number of Trees')
+
+```
+
+```{r BagImp}
+## Variable importance plot
+varImpPlot(bag_cric, type = 2) #type=2: Reduction in gini index
+
+# This contains the info, but doesn't look fantastic!
+bag_varimp <- randomForest::importance(bag_cric, type=2)
+bag_varimp <- bag_varimp[order(bag_varimp, decreasing=FALSE),]
+
+```
+
+```{r BagImpDoc, include = TRUE,eval=TRUE}
+barplot(bag_varimp, horiz = T, col = 'navy', las=1,xlim = c(0,100),
+        xlab = 'Mean decrease in Gini index', cex.axis = 1, 
+        main = 'Variable Importance', cex.names = 0.6)
+
+```
+
+```{r saveplot}
+# 1. Open jpeg file
+jpeg("Images/Bagging Importance.jpg", width = 450, height = 450)
+# 2. Create the plot
+barplot(bag_varimp, horiz = T, col = 'navy', las=1,xlim = c(0,100),
+        xlab = 'Mean decrease in Gini index', cex.axis = 1, 
+        main = 'Variable Importance', cex.names = 0.6)
+# 3. Close the file
+dev.off()
+
+```
+
+```{r BagImp2}
+str(bag_cric)
+str(bag_cric$importance)
+data_bag <- as.data.frame(cbind(rownames(bag_cric$importance),round(bag_cric$importance[,"MeanDecreaseGini"],1)))
+colnames(data_bag) <- c("Parameters","Importance")
+data_bag$Importance <- as.numeric(as.character(data_bag$Importance))
+data_bag$Parameters = as.character(data_bag$Parameters)
+data_bag2 = as.data.frame(cbind(data_bag$Parameters,data_bag$Importance))
+colnames(data_bag2) <- c("Parameters","Importance")
+data_bag2$Importance = as.numeric(as.character(data_bag2$Importance))
+data_bag2$Parameters = as.character(data_bag2$Parameters)
+data_bag2$Parameters = gsub("\\."," ",data_bag2$Parameters)
+
+data_bag_sorted <- data_bag2[order(data_bag2$Importance),]
+data_bag_sorted$Parameters <- factor(data_bag_sorted$Parameters, levels = data_bag_sorted$Parameters)
+
+```
+
+```{r bagImpDoc, include = TRUE,eval = TRUE}
+ggplot(data_bag_sorted,aes(x = Importance,y = Parameters)) + geom_bar(stat = 'identity',fill = 'blue') +
+xlab('Mean decrease in Gini index') +
+ggtitle('Bagging Variable Importance') + theme(plot.title = element_text(hjust = 0.5)) 
+
+image_file = 'Bagging Importance.jpg'
+ggsave(paste0('Images/',image_file))
+ggsave(paste0('C:/Users/arlto/Google Drive/Arlton Gilbert MSc/Write-up/Current Version/images/',image_file))
+
+```
+
+```{r bagpred}
+yhat_bag_train <- predict(bag_cric, newdata = train_tree, type = 'class') #type argument nb for classification!
+
+# Predict on test set
+yhat_bag_test <- predict(bag_cric, newdata = test_tree, type = 'class') #type argument nb for classification!
+
+#Check
+(c_mat <- table(yhat_bag_test, test_tree$Defending.Result))
+sum(diag(c_mat))/nrow(test_tree)*100 #classification accuracy
+
+```
+
+```{r predictbagvalid}
+Acc_bag_train <- mean(yhat_bag_train==train_tree$Defending.Result)
+
+Acc_bag_test <- mean(yhat_bag_test==test_tree$Defending.Result)
+
+```
+
+```{r predictbagdoc}
+round(Acc_bag_train*100,4)
+round(Acc_bag_test*100,4)
+
+```
+
+```{r classBagPre}
+# Predict on test set
+yhat_bag_test_vec <- predict(bag_cric, newdata = test_tree, type = 'prob') 
+pi_hat_bag_test = yhat_bag_test_vec[,1]
+
+```
+
+```{r predictLogChart}
+pred_test_bag = as_tibble(pi_hat_bag_test)
+
+colnames(pred_test_bag) = "Pred"
+pred_test_bag["LowerHelp"] = floor(pred_test_bag["Pred"] * 10) / 10
+pred_test_bag["Lower"] = paste0("<",pred_test_bag$LowerHelp)
+pred_test_bag["Upper"] = pred_test_bag["LowerHelp"] + 0.1
+pred_test_bag["Band"] = paste0(pred_test_bag$Lower," - ",pred_test_bag$Upper)
+pred_test_bag["Result"] = Y_test
+pred_test_bag["Prediction"] = Y_hat_cv_test
+pred_test_bag["Corr"] = ifelse(Y_hat_cv_test == Y_test,1,0)
+pred_test_bag["Incorr"] = 1 - pred_test_bag["Corr"]
+
+pred_test_bag2 = pred_test_bag %>% 	group_by(Band) %>%	summarise(Incorrect = sum(Incorr),Correct = sum(Corr))
+
+df_bag = merge(x=Band_Full,y=pred_test_bag2,by="Band",all=TRUE,sort=TRUE)
+df_bag$Correct = ifelse(is.na(df_bag$Correct),0,df_bag$Correct)
+df_bag$Incorrect = ifelse(is.na(df_bag$Incorrect),0,df_bag$Incorrect)
+df_bag$Band = as.character(df_bag$Band)
+df_bag$Band[1] = '0 - 0.1'
+df_bag$Band = factor(df_bag$Band, levels = df_bag$Band)
+
+sum(df_bag$Correct)
+sum(df_bag$Incorrect)
+
+```
+
+```{r plottbagChart}
+
+melted_bag = melt(as.data.frame(df_bag), id="Band")
+
+ggplot(melted_bag,aes(x=Band,y=value,fill=variable)) + geom_bar(stat="identity", alpha=.3) + xlab("Prediction Probability")+ ylab("Count") + scale_fill_manual(values = c("34BE82", "#52854C")) + labs(fill='Legend') +
+scale_x_discrete(guide = guide_axis(n.dodge=2)) + scale_y_continuous(breaks = seq(0, 34, by = 1)) + 
+ggtitle("Distribution of Predictions for Bagging") + theme(plot.title = element_text(hjust = 0.5)) 
+
+image_file = 'bag.jpg'
+ggsave(paste0('Images/',image_file))
+ggsave(paste0('C:/Users/arlto/Google Drive/Arlton Gilbert MSc/Write-up/Current Version/images/',image_file))
+
+```
+
+#Random Forests
+
+```{r RFinit}
+## Fit a Random Forest
+set.seed(1)
+  rf_init <- randomForest(Defending.Result ~ ., data = train_tree, 
+                           ntree = 1000, 
+                           importance = TRUE, 
+                           #do.trace = 100,
+                            #mtry = i)
+  )
+# For classification tree, default mtry = floor(sqrt(ncol(x)))
+
+```
+
+```{r RFinitDoc,include=TRUE, eval = TRUE}
+# compare OOB errors:
+plot(rf_init$err.rate[, 'OOB'], type = 's', xlab = 'Number of trees', ylab = 'OOB error', col = 'red')
+lines(bag_cric$err.rate[, 'OOB'], col = 'black', type = 's')
+legend('topright', legend = c('Bagging', 'Random Forest'), col = c('black', 'red'), lwd = 2)
+#No need for more trees for either model
+
+```
+
+```{r RFmin}
+## Fit a Random Forest
+y=0
+for (i in 1:(ncol(train_tree)-1)){
+set.seed(1)
+  rf_min <- randomForest(Defending.Result ~ ., data = train_tree, 
+                           ntree = 1000, 
+                           importance = TRUE, 
+                           #do.trace = 100,
+                            mtry = i) 
+# For classification tree, default mtry = floor(sqrt(ncol(x)))
+  print(paste(i,round(rf_min$err.rate[1000,"OOB"]*100,4),sep=" "))
+  y[i]=rf_min$err.rate[1000,"OOB"]*100
+}
+min_i = which.min(y)
+
+```
+
+```{r RFmindoc}
+# Fit a Random Forest
+OOB_rf = as.data.frame(y)
+OOB_rf$m = seq.int(nrow(OOB_rf))
+
+#Add colour to indivate min
+#Add more ticks to x axis
+ggplot(OOB_rf,aes(x = m,y = y)) + geom_line() + geom_point() +
+ylab("OOB Error")+ xlab("m") + ggtitle("OOB Error vs values for m") + theme(plot.title = element_text(hjust = 0.5)) 
+
+image_file = 'OOB min RF.jpg'
+ggsave(paste0('Images/',image_file))
+ggsave(paste0('C:/Users/arlto/Google Drive/Arlton Gilbert MSc/Write-up/Current Version/images/',image_file))
+
+
+```
+
+```{r RF}
+## Fit a Random Forest
+set.seed(1)
+  rf_cric <- randomForest(Defending.Result ~ ., data = train_tree, 
+                           ntree = 1000, 
+                           importance = TRUE, 
+                           #do.trace = 100,
+                           mtry = min_i)
+# For classification tree, default mtry = floor(sqrt(ncol(x)))
+  
+```
+
+```{r RFinitDoc,include=TRUE, eval = TRUE}
+image_file = 'OOB.jpg'
+
+# 1. Open jpeg file
+jpeg(paste0('Images/',image_file), width = 450, height = 450)
+
+# 2. Create the plot
+# compare OOB errors:
+plot(rf_cric$err.rate[, 'OOB'], type = 's', xlab = 'Number of trees', ylab = 'OOB error', col = 'red', main = "Out of Bag Error Comparison")
+lines(bag_cric$err.rate[, 'OOB'], col = 'black', type = 's')
+legend('topright', legend = c('Bagging', 'Random Forest'), col = c('black', 'red'), lwd = 2)
+#No need for more trees for either model
+# 3. Close the file
+dev.off()
+
+# 1. Open jpeg file
+jpeg(paste0('C:/Users/arlto/Google Drive/Arlton Gilbert MSc/Write-up/Current Version/images/',image_file), width = 450, height = 450)
+# 2. Create the plot
+# compare OOB errors:
+plot(rf_cric$err.rate[, 'OOB'], type = 's', xlab = 'Number of trees', ylab = 'OOB error', col = 'red', main = "Out of Bag Error Comparison")
+lines(bag_cric$err.rate[, 'OOB'], col = 'black', type = 's')
+legend('topright', legend = c('Bagging', 'Random Forest'), col = c('black', 'red'), lwd = 2)
+#No need for more trees for either model
+# 3. Close the file
+dev.off()
+
+```
+
+```{r RFImp}
+# This containts the info, but doesn't look fantastic!
+bag_rfimp <- randomForest::importance(rf_cric, type=2)
+bag_rfimp <- bag_rfimp[order(bag_rfimp, decreasing=FALSE),]
+
+```
+
+```{r rfImp2}
+str(rf_cric)
+str(rf_cric$importance)
+data_rf <- as.data.frame(cbind(rownames(rf_cric$importance),round(rf_cric$importance[,"MeanDecreaseGini"],1)))
+colnames(data_rf) <- c("Parameters","Importance")
+data_rf$Importance <- as.numeric(as.character(data_rf$Importance))
+data_rf$Parameters = as.character(data_rf$Parameters)
+data_rf2 = as.data.frame(cbind(data_rf$Parameters,data_rf$Importance))
+colnames(data_rf2) <- c("Parameters","Importance")
+data_rf2$Importance = as.numeric(as.character(data_rf2$Importance))
+data_rf2$Parameters = as.character(data_rf2$Parameters)
+data_rf2$Parameters = gsub("\\."," ",data_rf2$Parameters)
+
+data_rf_sorted <- data_rf2[order(data_rf2$Importance),]
+data_rf_sorted$Parameters <- factor(data_rf_sorted$Parameters, levels = data_rf_sorted$Parameters)
+
+```
+
+```{r rfImpDoc, include = TRUE,eval = TRUE}
+ggplot(data_rf_sorted,aes(x = Importance,y = Parameters)) + geom_bar(stat = 'identity',fill = 'blue') +
+xlab('Mean decrease in Gini index') +
+ggtitle('Random Forest Variable Importance') + theme(plot.title = element_text(hjust = 0.5)) 
+
+image_file = 'Random Forest Importance.jpg'
+ggsave(paste0('Images/',image_file))
+ggsave(paste0('C:/Users/arlto/Google Drive/Arlton Gilbert MSc/Write-up/Current Version/images/',image_file))
+
+```
+
+```{r RF2}
+## Time to use both models for prediction
+yhat_rf_train <- predict(rf_cric, newdata = train_tree) 
+yhat_rf_test <- predict(rf_cric, newdata = test_tree)
+
+table(yhat_bag_train, Y_train, dnn = c('Predicted', 'True'))
+table(yhat_rf_train, Y_train, dnn = c('Predicted', 'True'))
+
+```
+
+```{r predictrfvalid}
+Acc_rf_train <- mean(yhat_rf_train==train_tree$Defending.Result)
+Acc_rf_test <- mean(yhat_rf_test==test_tree$Defending.Result)
+
+```
+
+```{r predictrfdoc}
+round(Acc_rf_train*100,4)
+round(Acc_rf_test*100,4)#Not used, for easy use later
+
+```
+
+```{r classrfPre}
+# Predict on test set
+yhat_rf_test_vec <- predict(rf_cric, newdata = test_tree, type = 'prob') 
+pi_hat_rf_test = yhat_rf_test_vec[,1]
+
+```
+
+```{r predictLogChart}
+pred_test_rf = as_tibble(pi_hat_rf_test)
+
+colnames(pred_test_rf) = "Pred"
+pred_test_rf["LowerHelp"] = floor(pred_test_rf["Pred"] * 10) / 10
+pred_test_rf["Lower"] = paste0("<",pred_test_rf$LowerHelp)
+pred_test_rf["Upper"] = pred_test_rf["LowerHelp"] + 0.1
+pred_test_rf["Band"] = paste0(pred_test_rf$Lower," - ",pred_test_rf$Upper)
+pred_test_rf["Result"] = Y_test
+pred_test_rf["Prediction"] = Y_hat_cv_test
+pred_test_rf["Corr"] = ifelse(Y_hat_cv_test == Y_test,1,0)
+pred_test_rf["Incorr"] = 1 - pred_test_rf["Corr"]
+
+pred_test_rf2 = pred_test_rf %>% 	group_by(Band) %>%	summarise(Incorrect = sum(Incorr),Correct = sum(Corr))
+
+df_rf = merge(x=Band_Full,y=pred_test_rf2,by="Band",all=TRUE,sort=TRUE)
+df_rf$Correct = ifelse(is.na(df_rf$Correct),0,df_rf$Correct)
+df_rf$Incorrect = ifelse(is.na(df_rf$Incorrect),0,df_rf$Incorrect)
+df_rf$Band = as.character(df_rf$Band)
+df_rf$Band[1] = '0 - 0.1'
+df_rf$Band = factor(df_rf$Band, levels = df_rf$Band)
+
+sum(df_rf$Correct)
+sum(df_rf$Incorrect)
+
+```
+
+```{r plottrfChart}
+
+melted_rf = melt(as.data.frame(df_rf), id="Band")
+
+ggplot(melted_rf,aes(x=Band,y=value,fill=variable)) + geom_bar(stat="identity", alpha=.3) + xlab("Prediction Probability")+ ylab("Count") + scale_fill_manual(values = c("34BE82", "#52854C")) + labs(fill='Legend') +
+scale_x_discrete(guide = guide_axis(n.dodge=2)) + scale_y_continuous(breaks = seq(0, 34, by = 1)) + 
+ggtitle("Distribution of Predictions for Random Forest") + theme(plot.title = element_text(hjust = 0.5)) 
+
+image_file = 'rf.jpg'
+ggsave(paste0('Images/',image_file))
+ggsave(paste0('C:/Users/arlto/Google Drive/Arlton Gilbert MSc/Write-up/Current Version/images/',image_file))
+
+```
+
+#Boosting
+
+```{r BoostGrid}
+library(gbm)
+library(caret)
+
+set.seed(1)
+ctrl <- trainControl(method = 'cv', number = 10, verboseIter = T)
+gbm_grid <- expand.grid(n.trees = c(1000, 1500, 2000),
+                        interaction.depth = c(1, 2, 6),
+                        shrinkage = c(0.01, 0.005, 0.001),
+                        n.minobsinnode = 1)
+gbm_grid #Optimal is n.trees = 2000, interaction.depth = 6, shrinkage = 0.01
+
+set.seed(1)
+
+gbm_gridsearch <- train(Defending.Result ~ ., data = train_tree, 
+                method = 'gbm', 
+                distribution = 'bernoulli', 
+                trControl = ctrl, 
+                verbose = F, 
+                tuneGrid = gbm_grid)
+gbm_gridsearch
+
+```
+
+```{r BoostResults}
+confusionMatrix(gbm_gridsearch)
+
+## Prediction
+gbm_pred <- predict(gbm_gridsearch, train_tree)
+
+```
+
+```{r BoostData}
+train_tree_b = train_tree
+test_tree_b = test_tree
+
+train_tree_b$Defending.Result = as.numeric(train_tree$Defending.Result)-1
+test_tree_b$Defending.Result = as.numeric(test_tree$Defending.Result)-1
+
+```
+
+```{r Boosting}
+set.seed(1)
+gbm_cric <- gbm(Defending.Result ~ ., data = train_tree_b, 
+               distribution = 'bernoulli', #For binary classification (see ?gbm)
+               n.trees = 2000, #B
+               interaction.depth = 6, #d
+               shrinkage = 0.01, #lambda
+               bag.fraction = 1, #default = 0.5 for extra randomisation. 
+               cv.folds = 10, #built-in CV
+               n.cores = 6, #which can be parallelised
+               verbose = F)
+gbm_cric
+attributes(gbm_cric)
+
+#CV Errors per tree
+best_B <- gbm.perf(gbm_cric, method = 'cv') 
+
+#Variable importance
+summary(gbm_cric) 
+
+## What about other hyperparameters? Let's grid search
+#names(getModelInfo()) #models supported by caret
+getModelInfo()$gbm$parameters
+
+```
+
+```{r partialdep,include = TRUE, eval= TRUE, out.width = "50%"}
+par(mfrow=c(2,4))
+#Partial dependence
+plot.gbm(gbm_cric, 1, best_B) 
+plot.gbm(gbm_cric, 2, best_B) 
+plot.gbm(gbm_cric, 3, best_B) 
+plot.gbm(gbm_cric, 4, best_B) 
+plot.gbm(gbm_cric, 5, best_B) 
+plot.gbm(gbm_cric, 6, best_B) 
+plot.gbm(gbm_cric, 7, best_B)
+
+```
+
+```{r Boosting2}
+## Time to use both models for prediction
+yhat_boost_train <- predict(gbm_gridsearch, train_tree)
+yhat_boost_test <- predict(gbm_gridsearch, newdata  = test_tree) 
+
+table(yhat_boost_train, Y_train, dnn = c('Predicted', 'True'))
+
+```
+
+```{r predictboost}
+Acc_boost_train <- mean(yhat_boost_train==train_tree$Defending.Result)
+Acc_boost_test <- mean(yhat_boost_test==test_tree$Defending.Result)
+
+```
+
+```{r predictboostdoc}
+round(Acc_boost_train*100,4)
+round(Acc_boost_test*100,4)
+
+```
+
+```{r classboostPre}
+# Predict on test set
+yhat_boost_test_vec <- predict(gbm_gridsearch, newdata = test_tree, type = 'prob') 
+pi_hat_boost_test = yhat_boost_test_vec[,1]
+
+```
+
+```{r predictLogChart}
+pred_test_boost = as_tibble(pi_hat_boost_test)
+
+colnames(pred_test_boost) = "Pred"
+pred_test_boost["LowerHelp"] = floor(pred_test_boost["Pred"] * 10) / 10
+pred_test_boost["Lower"] = paste0("<",pred_test_boost$LowerHelp)
+pred_test_boost["Upper"] = pred_test_boost["LowerHelp"] + 0.1
+pred_test_boost["Band"] = paste0(pred_test_boost$Lower," - ",pred_test_boost$Upper)
+pred_test_boost["Result"] = Y_test
+pred_test_boost["Prediction"] = Y_hat_cv_test
+pred_test_boost["Corr"] = ifelse(Y_hat_cv_test == Y_test,1,0)
+pred_test_boost["Incorr"] = 1 - pred_test_boost["Corr"]
+
+pred_test_boost2 = pred_test_boost %>% 	group_by(Band) %>%	summarise(Incorrect = sum(Incorr),Correct = sum(Corr))
+
+df_boost = merge(x=Band_Full,y=pred_test_boost2,by="Band",all=TRUE,sort=TRUE)
+df_boost$Correct = ifelse(is.na(df_boost$Correct),0,df_boost$Correct)
+df_boost$Incorrect = ifelse(is.na(df_boost$Incorrect),0,df_boost$Incorrect)
+df_boost$Band = as.character(df_boost$Band)
+df_boost$Band[1] = '0 - 0.1'
+df_boost$Band = factor(df_boost$Band, levels = df_boost$Band)
+
+sum(df_boost$Correct)
+sum(df_boost$Incorrect)
+
+```
+
+```{r plottboostChart}
+
+melted_boost = melt(as.data.frame(df_boost), id="Band")
+
+ggplot(melted_boost,aes(x=Band,y=value,fill=variable)) + geom_bar(stat="identity", alpha=.3) + xlab("Prediction Probability")+ ylab("Count") + scale_fill_manual(values = c("34BE82", "#52854C")) + labs(fill='Legend') +
+scale_x_discrete(guide = guide_axis(n.dodge=2)) + scale_y_continuous(breaks = seq(0, 34, by = 1)) + 
+ggtitle("Distribution of Predictions for Boosting") + theme(plot.title = element_text(hjust = 0.5)) 
+
+image_file = 'boost.jpg'
+ggsave(paste0('Images/',image_file))
+ggsave(paste0('C:/Users/arlto/Google Drive/Arlton Gilbert MSc/Write-up/Current Version/images/',image_file))
+
+```
+
+#Support Vector Machines
+
+```{r formatdata}
+train_set_st = as.data.frame(cbind(Y_train,X_train_st))
+colnames(train_set_st)[1] = 'Defending Result'
+
+test_set_st = as.data.frame(cbind(Y_test,X_test_st))
+colnames(test_set_st)[1] = 'Defending Result'
+
+```
+
+```{r SVM_run}
+best_score <<- 0 #Global
+
+#test
+kernel1 = "linear"
+cost1 = 0.05
+gamma1 = 0.1
+count = 0 #3000 total
+#svm model
+for (kernel1 in c("linear","radial","sigmoid")){
+  for (cost1 in seq(from=0.05,to=10, by=0.05)){
+    for (gamma1 in c(0.1, 0.01, 0.001, 0.0001, 0.00001)){
+      set.seed(1)
+      model = svm(`Defending Result` ~ . , data = train_set_st,
+                       type = 'C-classification',
+                       kernel = kernel1,
+                       scale = FALSE,
+                       cost = cost1, gamma = gamma1)
+      
+      svm_pred = predict(model, train_set_st)
+      result = mean(svm_pred == train_set_st$`Defending Result`)
+      count = count + 1
+      print(paste0("Run ",count," done"))
+      
+      if (result > best_score){
+        best_score <<- result #Global
+        model_best = model
+      }
+    }
+  }
+}
+
+cost_best = model_best$cost
+gamma_best = model_best$gamma
+kernel_num = model_best$kernel
+kernel = c("linear","polynomial","radial","sigmoid")
+kernel_best = kernel[kernel_num+1] 
+
+```
+
+```{r best_SVM}
+cost_best
+gamma_best
+kernel_best
+
+```
+
+```{r SVM_vars}
+#svm chosen model parameters
+svm_pred_train = predict(model_best,newdata = train_set_st)
+train_svm = confusionMatrix(svm_pred_train,as.factor(train_set_st$`Defending Result`))
+precision_best_train = round(train_svm$byClass["Precision"],4)
+
+svm_pred_test = predict(model_best,newdata = test_set_st)
+test_svm = confusionMatrix(svm_pred_test, as.factor(test_set_st$`Defending Result`))
+precision_best_test = round(test_svm$byClass["Precision"],4)
+
+svm_pred_test
+svms = sum(model_best$nSV)
+
+```
+
+```{r predictsvm}
+Acc_svm_train <- mean(svm_pred_train==train_set_st$`Defending Result`)
+Acc_svm_test <- mean(svm_pred_test==test_set_st$`Defending Result`)
+
+```
+
+```{r predictsvmdoc}
+round(Acc_svm_train*100,4)
+round(Acc_svm_test*100,4)
+
+```
+
+#Neural Networks
+
+```{r NNmodels}
+train_set_st2 = train_set_st
+test_set_st2 = test_set_st
+countnames = 0
+
+for (cnames in colnames(train_set_st)){
+  countnames = countnames + 1
+  colnames(train_set_st2)[countnames] = gsub("/","_",gsub(" ","_",trim(gsub("`"," ",gsub(" ",".",cnames)))))
+}
+
+colnames(test_set_st2) = colnames(train_set_st2)
+
+```
+
+```{r NNFuncs}
+NNFunc = function(data_params,hidden_params = FALSE){
+  set.seed(1)
+  return ( neuralnet(as.factor(Defending.Result) ~ Defending.Team_DECCAN.CHARGERS + Defending.Team_DELHI.CAPITALS + Defending.Team_GUJARAT.LIONS + Defending.Team_KOCHI.TUSKERS.KERALA + Defending.Team_KOLKATA.KNIGHT.RIDERS + Defending.Team_MUMBAI.INDIANS + Defending.Team_PUNE.WARRIORS + Defending.Team_PUNJAB.KINGS + Defending.Team_RAJASTHAN.ROYALS + Defending.Team_RISING.PUNE.SUPERGIANT + Defending.Team_ROYAL.CHALLENGERS.BANGALORE + Defending.Team_SUNRISERS.HYDERABAD + Chasing.Team_DECCAN.CHARGERS + Chasing.Team_DELHI.CAPITALS + Chasing.Team_GUJARAT.LIONS + Chasing.Team_KOCHI.TUSKERS.KERALA + Chasing.Team_KOLKATA.KNIGHT.RIDERS + Chasing.Team_MUMBAI.INDIANS + Chasing.Team_PUNE.WARRIORS + Chasing.Team_PUNJAB.KINGS + Chasing.Team_RAJASTHAN.ROYALS + Chasing.Team_RISING.PUNE.SUPERGIANT + Chasing.Team_ROYAL.CHALLENGERS.BANGALORE + Chasing.Team_SUNRISERS.HYDERABAD + Defending.Stadium_HOME + Defending.Stadium_NEUTRAL + TimeDay_Night + Defending.Toss_WON + Bat2.Strength + Bowl2.Strength + First.Inn.Score + First.Inn.Median + Second.Inn.Median + Ground.Altitude + Ground.Length + Ground.Width,
+          data = data_params,err.fct = "ce", hidden = hidden_params, act.fct = "logistic", linear.output = FALSE,stepmax = 10000))
+
+}
+
+```
+
+```{r NNFuncs2}
+NNFunc2 = function(fld, data_full,hidden_params = FALSE){
+  #Make predictions given a fold
+  
+  set.seed(1)
+  model_nn = NNFunc(data_full[-fld,],hidden_params)
+  
+  #get the classifications from the network
+  classes <- predict(model_nn, data_full[fld,])
+  maxprobability <- apply(classes, 1, which.max) 
+  return (maxprobability == data_full[fld,'Defending.Result'])
+}
+
+```
+  
+```{r NNmodel}
+set.seed(1)
+folds <- createFolds(train_set_st2$Defending.Result, k = 10)
+#results is a vector that will contain the average sum error square for each 
+# of the network trainings for the validation set.
+
+results_nn1 <- c()
+results_nn2 <- c()
+#results_nn3 <- c()
+
+for (fld in folds){
+  #Model 1 - no hidden layers
+  results_nn1 <- c(results_nn1, NNFunc2(fld, train_set_st2, FALSE)) # 0.6102941
+  #results_nn2 <- c(results_nn2, NNFunc2(fld, train_set_st2, c(3))) #0.6323529
+  #results_nn3 <- c(results_nn3, NNFunc2(fld, train_set_st2, c(3,3))) #0.6046852
+}  
+
+sum(results_nn1)/length(results_nn1)
+#sum(results_nn2)/length(results_nn2)
+#sum(results_nn3)/length(results_nn3)
+
+```
+
+```{r NNTest}
+set.seed(1)
+nn_model =  NNFunc(train_set_st2, FALSE)
+
+nn_pred_train_ext = predict(nn_model, train_set_st2)
+nn_pred_train <- as.factor(apply(nn_pred_train_ext, 1, which.max) )
+
+confusionMatrix(nn_pred_train, as.factor(train_set_st$`Defending Result`))
+
+nn_pred_test_ext = predict(nn_model,newdata = test_set_st2)
+nn_pred_test <- as.factor(apply(nn_pred_test_ext, 1, which.max) )
+
+confusionMatrix(nn_pred_test, as.factor(test_set_st$`Defending Result`))
+
+```
+
+```{r predictsvm}
+Acc_nn_train <- mean(nn_pred_train==train_set_st$`Defending Result`)
+Acc_nn_test <- mean(nn_pred_test==test_set_st$`Defending Result`)
+
+```
+
+```{r predictsvmdoc}
+round(Acc_nn_train*100,4)
+round(Acc_nn_test*100,4)
+
+```
+
+```{r classnnPre}
+# Predict on test set
+yhat_nn_test_vec <- predict(nn_model, newdata = test_set_st2, type = 'prob') 
+pi_hat_nn_test = yhat_nn_test_vec[,1]
+
+```
+
+```{r predictLogChart}
+pred_test_nn = as_tibble(pi_hat_nn_test)
+
+colnames(pred_test_nn) = "Pred"
+pred_test_nn["LowerHelp"] = floor(pred_test_nn["Pred"] * 10) / 10
+pred_test_nn["Lower"] = paste0("<",pred_test_nn$LowerHelp)
+pred_test_nn["Upper"] = pred_test_nn["LowerHelp"] + 0.1
+pred_test_nn["Band"] = paste0(pred_test_nn$Lower," - ",pred_test_nn$Upper)
+pred_test_nn["Result"] = Y_test
+pred_test_nn["Prediction"] = Y_hat_cv_test
+pred_test_nn["Corr"] = ifelse(Y_hat_cv_test == Y_test,1,0)
+pred_test_nn["Incorr"] = 1 - pred_test_nn["Corr"]
+
+pred_test_nn2 = pred_test_nn %>% 	group_by(Band) %>%	summarise(Incorrect = sum(Incorr),Correct = sum(Corr))
+
+df_nn = merge(x=Band_Full,y=pred_test_nn2,by="Band",all=TRUE,sort=TRUE)
+df_nn$Correct = ifelse(is.na(df_nn$Correct),0,df_nn$Correct)
+df_nn$Incorrect = ifelse(is.na(df_nn$Incorrect),0,df_nn$Incorrect)
+df_nn$Band = as.character(df_nn$Band)
+df_nn$Band[1] = '0 - 0.1'
+df_nn$Band = factor(df_nn$Band, levels = df_nn$Band)
+
+sum(df_nn$Correct)
+sum(df_nn$Incorrect)
+
+```
+
+```{r plottnnChart}
+
+melted_nn = melt(as.data.frame(df_nn), id="Band")
+
+ggplot(melted_nn,aes(x=Band,y=value,fill=variable)) + geom_bar(stat="identity", alpha=.3) + xlab("Prediction Probability")+ ylab("Count") + scale_fill_manual(values = c("34BE82", "#52854C")) + labs(fill='Legend') +
+scale_x_discrete(guide = guide_axis(n.dodge=2)) + scale_y_continuous(breaks = seq(0, 34, by = 1)) + 
+ggtitle("Distribution of Predictions for Neural Network") + theme(plot.title = element_text(hjust = 0.5)) 
+
+image_file = 'Neural Network.jpg'
+ggsave(paste0('Images/',image_file))
+ggsave(paste0('C:/Users/arlto/Google Drive/Arlton Gilbert MSc/Write-up/Current Version/images/',image_file))
+
+```
+
+#Naive Bayes
+
+```{r naive_bayes}
+
+model_nb <- naive_bayes(as.factor(`Defending Result`) ~ ., data = train_set_st, usekernel = T) 
+summary(model_nb)
+nb_pred_train = predict(model_nb, type = "class")
+nb_pred_test = predict(model_nb, newdata = X_test_st, type = "class")
+
+```
+
+```{r predictsvm}
+Acc_nb_train <- mean(nb_pred_train==train_set_st$`Defending Result`)
+Acc_nb_test <- mean(nb_pred_test==test_set_st$`Defending Result`)
+
+```
+
+```{r predictsvmdoc}
+round(Acc_nb_train*100,4)
+round(Acc_nb_test*100,4)
+
+```
+
+```{r classnbPre}
+# Predict on test set
+yhat_nb_test_vec <- predict(model_nb, newdata = X_test_st, type = 'prob') 
+pi_hat_nb_test = yhat_nb_test_vec[,1]
+
+```
+
+```{r predictLogChart}
+pred_test_nb = as_tibble(pi_hat_nb_test)
+
+colnames(pred_test_nb) = "Pred"
+pred_test_nb["LowerHelp"] = floor(pred_test_nb["Pred"] * 10) / 10
+pred_test_nb["Lower"] = paste0("<",pred_test_nb$LowerHelp)
+pred_test_nb["Upper"] = pred_test_nb["LowerHelp"] + 0.1
+pred_test_nb["Band"] = paste0(pred_test_nb$Lower," - ",pred_test_nb$Upper)
+pred_test_nb["Result"] = Y_test
+pred_test_nb["Prediction"] = Y_hat_cv_test
+pred_test_nb["Corr"] = ifelse(Y_hat_cv_test == Y_test,1,0)
+pred_test_nb["Incorr"] = 1 - pred_test_nb["Corr"]
+
+pred_test_nb2 = pred_test_nb %>% 	group_by(Band) %>%	summarise(Incorrect = sum(Incorr),Correct = sum(Corr))
+
+df_nb = merge(x=Band_Full,y=pred_test_nb2,by="Band",all=TRUE,sort=TRUE)
+df_nb$Correct = ifelse(is.na(df_nb$Correct),0,df_nb$Correct)
+df_nb$Incorrect = ifelse(is.na(df_nb$Incorrect),0,df_nb$Incorrect)
+df_nb$Band = as.character(df_nb$Band)
+df_nb$Band[1] = '0 - 0.1'
+df_nb$Band = factor(df_nb$Band, levels = df_nb$Band)
+
+sum(df_nb$Correct)
+sum(df_nb$Incorrect)
+
+```
+
+```{r plottnbChart}
+
+melted_nb = melt(as.data.frame(df_nb), id="Band")
+
+ggplot(melted_nb,aes(x=Band,y=value,fill=variable)) + geom_bar(stat="identity", alpha=.3) + xlab("Prediction Probability")+ ylab("Count") + scale_fill_manual(values = c("34BE82", "#52854C")) + labs(fill='Legend') +
+scale_x_discrete(guide = guide_axis(n.dodge=2)) + scale_y_continuous(breaks = seq(0, 34, by = 1)) + 
+ggtitle("Distribution of Predictions for Naive Bayes") + theme(plot.title = element_text(hjust = 0.5)) 
+
+image_file = 'Naive Bayes.jpg'
+ggsave(paste0('Images/',image_file))
+ggsave(paste0('C:/Users/arlto/Google Drive/Arlton Gilbert MSc/Write-up/Current Version/images/',image_file))
+
+```
+
+```{r savestate}
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+time.taken
+
+# Savestate so we don't have to rerun computationally intensive parts later
+save.image(file='Modelling.RData')
+
+```
+
+```{r loadstate}
+#load(file='Modelling.RData')
+
+```
+
+```{r runabove}
+```

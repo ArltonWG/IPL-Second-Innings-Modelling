@@ -1,0 +1,618 @@
+---
+title: "WebScraper"
+author: "Arlton Gilbert"
+date: "04/04/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+#FILENUM: 4
+knitr::opts_chunk$set(echo = TRUE)
+#knitr::opts_knit$set(root.dir = dirname(rstudioapi::getActiveDocumentContext()$path))
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+library(stringr)
+library(tidyverse)
+library("xlsx")
+library(rvest)
+library(anytime)
+library("readxl")
+rm(list=ls())
+start.time <- Sys.time()
+#Average Run Time ~ 11.33min
+
+```
+
+```{r clearprevious}
+#ensure old files are not left there
+do.call(file.remove, list(list.files("Player Stats", full.names = TRUE)))
+do.call(file.remove, list(list.files("Match Grouping", full.names = TRUE)))
+sink("Player Stats/log.txt")
+
+```
+
+## About
+
+This file does takes the results of the webscraping and turns it into players stats 
+
+```{r namecleaner}
+#Difficult names dealt with here
+#KL Rahul has his name as Lokesh Rahul on the teamsheet sometimes
+#Khaleel Ahmed sometimes has his name as K Khaleel Ahmed sometimes
+#There's a Harmeet Singh who should be Harmeet Singh Bansal, the other Harmeet Singh only played one match
+#Harpreet Singh Bhatia referred to as just Harpreet Singh in team lists for some reasons
+
+mysub = function(x,match){
+  temp = as.data.frame(sapply(as.data.frame(sapply(as.data.frame(sapply(as.data.frame(sapply(as.data.frame(sapply(x,
+gsub,pattern="Lokesh Rahul",replacement="KL Rahul"),stringsAsFactors=FALSE),
+gsub,pattern="K Khaleel Ahmed",replacement="Khaleel Ahmed"), stringsAsFactors=FALSE),
+gsub,pattern="Simran Singh",replacement="Prabhsimran Singh"), stringsAsFactors=FALSE),
+gsub,pattern="Chakravarthy",replacement="Chakaravarthy"), stringsAsFactors=FALSE),
+gsub,pattern="Harpreet Singh",replacement="Harpreet Singh Bhatia"), stringsAsFactors=FALSE)
+  
+  if (match != 341){
+    #This one match was just Harmeet Singh
+    return (as.data.frame(sapply(as.data.frame(sapply(temp,gsub,pattern="Harmeet Singh",replacement="Harmeet Singh Bansal"), stringsAsFactors=FALSE),gsub,pattern="Bansal Bansal",replacement = "Bansal"), stringsAsFactors=FALSE))
+  }
+  else{
+    return (temp)
+  }
+}
+
+```
+
+```{r convertnumsfunc}
+convertNums = function(x,val = 0){
+  temp_num = as.numeric(x)
+  if (is.na(temp_num)){
+    return (val)
+  }
+  else{
+    return(temp_num)
+  }
+}
+
+```
+
+```{r batting_simulation}
+batting_sim = function(innings,bat){
+  
+  if(innings == 1){
+    own_score = bat1init[1,3]
+    opp_score = bat2Score
+    bowl_row = bowl2_row
+    bat = bat1
+    bat_cap = bat1_cap
+    bat_wk = bat1_wk
+    teamname = team1name
+    oppname = team2name
+    ovw_mult = 0
+  }
+  else{
+    own_score = bat2init[1,3]
+    opp_score = bat1init[1,3]
+    bowl_row = bowl1_row
+    bat = bat2
+    bat_cap = bat2_cap
+    bat_wk = bat2_wk
+    teamname = team2name
+    oppname = team1name
+    ovw_mult = 2
+  }
+  
+  Ex_bat = as.numeric(str_split(bat[1,3],fixed("-"))[[1]][1]) - 
+    sum(unlist(lapply(bat[3:13,]$X3, convertNums))) #Extras
+  
+  thisbat = 0
+  startbat = 1
+  
+  revbat = 0
+  if (fliporder == 1){
+    bat_nums = unlist(lapply(bat$X7, convertNums, val=-1))
+    revbat = length(which(bat_nums >= 0)) + 1
+  }
+  
+  for (j in c(3:13))
+  {
+    bats <<- bats + 1#place in overall batting list
+    
+    if (is.na(bat[j,2]) | bat[j,2] %in% c("Extras","Total","Fall of Wickets","Did not Bat","Yet to Bat")){
+      #View(bat)
+      #means we are at the end of the batting lineup
+      for (k in c(startbat:11)){
+        #from whatever number we've found so far
+        startbat = startbat + 1 #reduces the number of names we look at next time
+        found = 0 #name hasn't been found in existing batsmen
+        temp_name = str_replace(str_replace(str_replace(matchinfo[bowl_row,3+k]," \\(wk\\)","")," \\(c\\)","")," \\(c & wk\\)","")
+        #first page has full names
+        for (l in c(3:(2+thisbat))){
+          #going through the batting list
+          if (temp_name == str_replace(str_replace(str_replace(bat[l,2]," \\(wk\\)","")," \\(c\\)","")," \\(c & wk\\)","")){
+            #if we find that name then stop, these should already have full names
+            found = 1
+            break
+          }
+        }
+        if (found == 0){
+          batlist[bats,1] <<- temp_name #batsmans name
+
+          batlist[bats,3] <<- 0 #MB
+          batlist[bats,17] <<- j - 2 #Batting Num
+          overview[ovw,(j-2)+13+11*ovw_mult] <<- batlist[bats,1] #store in match overview
+          break
+        }
+      }
+    }
+    
+    else{
+      thisbat = thisbat + 1
+      
+      #sometimes they store just the surname
+      playername = str_replace(str_replace(str_replace(bat[j,2]," \\(wk\\)","")," \\(c\\)","")," \\(c & wk\\)","") #batsmans name
+      splitname = as.list(strsplit(playername," ")[[1]])
+      
+      matched_names = 0 #to check that only one name makes it through our criteria 
+      for (k in c(1:11)){ 
+        temp_name = str_replace(str_replace(str_replace(matchinfo[bowl_row,3+k]," \\(wk\\)","")," \\(c\\)","")," \\(c & wk\\)","")
+        splittemp = as.list(strsplit(temp_name," ")[[1]])
+        if (str_detect(playername,temp_name) || str_detect(temp_name,playername) || (splitname[[1]] == splittemp[[1]] && tail(splitname,1)[[1]] == tail(splittemp,1)[[1]]) || (nchar(splitname[1]) <= 3 && tail(splitname,1)[[1]] == tail(splittemp,1)[[1]] && substr(playername,1,1) == substr(temp_name,1,1))){
+          batlist[bats,1] <<- temp_name
+          
+          bat[j,2] = temp_name
+          matched_names = matched_names + 1
+        }
+      }
+      
+    if (matched_names > 1){
+      #Ravichandran Ashwin and Murugan Ashwin sometimes play for the same team
+      if (str_detect(playername,"Ashwin")){
+        temp_name = str_replace(str_replace(playername,"Ashwin","Ravichandran Ashwin"),"M Ravichandran Ashwin","Murugan Ashwin")
+        batlist[bats,1] <<- temp_name
+
+        bat[j,2] = temp_name
+        print(paste0("ASHWINS FIXED"))
+      }
+      else{
+        print(paste0("ERROR WITH BATSMAN",playername,". MULTIPLE NAMES MATCHED"))        
+      }
+    }
+    else if (matched_names == 0){
+      print(paste0("ERROR WITH BATSMAN ",playername,". NAME NOT FOUND IN TEAM LIST"))
+    }
+      
+      batlist[bats,3] <<- 1 #MB
+      batlist[bats,17] <<- abs(revbat - (j - 3)) #Batting Num 
+      overview[ovw,abs(revbat - (j - 2))+13 + 11*ovw_mult] <<- batlist[bats,1] #store in match overview
+      
+      if (bat[j,3]=="not out"){
+        batlist[bats,4] <<- 1 #Not Out  
+      }
+      else{
+        batlist[bats,4] <<- 0 #Out
+      }
+      
+      batlist[bats,5] <<- bat[j,4] #Runs
+      batlist[bats,6] <<- bat[j,5] #Balls
+      batlist[bats,7] <<- bat[j,6] #4s
+      batlist[bats,8] <<- bat[j,7] #6s
+      batlist[bats,9] <<- bat[j,8] #SR
+      batlist[bats,10] <<- Ex_bat #Extras
+    }
+    
+    batlist[bats,2] <<- 1 #MP
+    batlist[bats,11] <<- stadium #Stadium
+    batlist[bats,12] <<- datum #date
+    batlist[bats,13] <<- tyd #time
+    batlist[bats,14] <<- teamname #Team Name
+    batlist[bats,15] <<- oppname #Opposition Name
+    batlist[bats,16] <<- innings #InningsNum
+    
+    batlist[bats,18] <<- own_score #score1
+    batlist[bats,19] <<- opp_score #score2
+    batlist[bats,20] <<- toss #toss
+    batlist[bats,21] <<- decision #toss
+    batlist[bats,22] <<- i #match num
+    batlist[bats,23] <<- result #result
+    batlist[bats,24] <<- bat_cap #captain
+    batlist[bats,25] <<- bat_wk #wicket keeper
+  }
+
+}
+
+```
+
+```{r bowling_simulation}
+
+bowling_sim = function(innings){
+  
+  if(innings == 1){
+    bowl = bowl1
+    bowl_row = bowl1_row
+    bat_cap = bat2_cap
+    bat_wk = bat2_wk
+    opp_score = bat1init[1,3]
+    own_score = bat2Score
+    bat = bat1
+    teamname = team2name
+    oppname = team1name
+    ovw_mult = 1
+  }
+  else{
+    bowl = bowl2
+    bowl_row = bowl2_row
+    bat_cap = bat1_cap
+    bat_wk = bat1_wk
+    opp_score = bat2init[1,3]
+    own_score = bat1init[1,3]
+    bat = bat2
+    teamname = team1name
+    oppname = team2name
+    ovw_mult = 3
+  }
+  
+  thisbowl = 0
+  
+  #basically which runs could we not attribute to bowlers
+  nonBowlEx_bowl = as.numeric(str_split(bat[1,3],fixed("-"))[[1]][1]) - 
+    sum(unlist(lapply(bowl[2:12,]$X4, convertNums))) 
+
+  startbowl = 1
+  for (j in c(2:12))
+  { 
+    
+    bowls <<- bowls + 1
+    
+    if (is.na(bowl[j,2])){
+      for (k in c(startbowl:11)){
+        startbowl = startbowl + 1
+        found = 0
+        temp_name = str_replace(str_replace(str_replace(matchinfo[bowl_row,3+k]," \\(wk\\)","")," \\(c\\)","")," \\(c & wk\\)","")
+        for (l in c(2:(1+thisbowl))){
+          if (temp_name == bowl[l,2]){
+            found = 1
+            break
+          }
+        }
+        if (found == 0){
+          bowllist[bowls,1] <<- temp_name #bowlers name
+          bowllist[bowls,3] <<- 0 #MB
+          
+          break
+        }
+      }
+    }
+    
+    else{
+      thisbowl = thisbowl + 1
+      
+      #sometimes they store just the surname
+      playername = str_replace(str_replace(str_replace(bowl[j,2]," \\(wk\\)","")," \\(c\\)","")," \\(c & wk\\)","")
+      #playername = as.list(bowl[j,2])["X1"]
+      splitname = as.list(strsplit(playername," ")[[1]])
+      
+      matched_names = 0 #to check that only one name makes it through our criteria
+      for (k in c(1:11)){ 
+        
+        temp_name = str_replace(str_replace(str_replace(matchinfo[bowl_row,3+k]," \\(wk\\)","")," \\(c\\)","")," \\(c & wk\\)","")
+        splittemp = as.list(strsplit(temp_name," ")[[1]])
+        
+        if (str_detect(playername,temp_name) || str_detect(temp_name,playername) || (splitname[[1]] == splittemp[[1]] && tail(splitname,1)[[1]] == tail(splittemp,1)[[1]]) || (nchar(splitname[1]) <= 3 && tail(splitname,1)[[1]] == tail(splittemp,1)[[1]] && substr(playername,1,1) == substr(temp_name,1,1))){
+          #if one name contained in other because sometimes one has extra last name
+          #if single name matches or name and surname match but one has extra middle name
+          #if just surname or initials and surname, assumed if first name at most 3 letters it is initials
+          
+          bowllist[bowls,1] <<- temp_name
+          name_store = temp_name
+
+          bowl[j,2] = temp_name
+          matched_names = matched_names + 1
+          #if more than 1 we have an issue and flag is raised
+        }
+      }
+      
+      bowllist[bowls,3] <<- 1 #MB
+    }
+    
+    if (matched_names > 1){
+      #Ravichandran Ashwin and Murugan Ashwin sometimes play for the same team
+      if (str_detect(playername,"Ashwin")){
+        temp_name = str_replace(str_replace(playername,"Ashwin","Ravichandran Ashwin"),"M Ravichandran Ashwin","Murugan Ashwin")
+        bowllist[bowls,1] <<- temp_name
+        bowl[j,2] = temp_name
+        print(paste0("ASHWINS FIXED"))
+      }
+      else{
+        print(paste0("ERROR WITH BOWLER ",playername,". MULTIPLE NAMES MATCHED"))       
+      }
+    }
+    else if (matched_names == 0){
+      print(paste0("ERROR WITH BOWLER ",playername,".NAME NOT FOUND IN TEAM LIST"))
+    }
+    
+    bowllist[bowls,2] <<- 1 #MP
+    
+    bowllist[bowls,4] <<- bowl[j,3] #Overs  
+    bowllist[bowls,5] <<- bowl[j,4] #Maidens
+    bowllist[bowls,6] <<- bowl[j,5] #Runs
+    bowllist[bowls,7] <<- bowl[j,6] #Wickets
+    bowllist[bowls,8] <<- bowl[j,7] #No Balls
+    bowllist[bowls,9] <<- bowl[j,8] #Wides
+    bowllist[bowls,10] <<- bowl[j,9] #Economy
+    bowllist[bowls,11] <<- nonBowlEx_bowl #nonBowlExtras
+    bowllist[bowls,12] <<- stadium #Stadium
+    bowllist[bowls,13] <<- datum #date
+    bowllist[bowls,14] <<- tyd #time
+    bowllist[bowls,15] <<- teamname #Team Name
+    bowllist[bowls,16] <<- oppname #Opposition Name
+    bowllist[bowls,17] <<- innings #innings
+    bowllist[bowls,18] <<- j - 1 #bowling num
+    bowllist[bowls,19] <<- opp_score #opp score
+    bowllist[bowls,20] <<- own_score #own score
+    bowllist[bowls,21] <<- toss
+    bowllist[bowls,22] <<- decision
+    bowllist[bowls,23] <<- i #match num
+    bowllist[bowls,24] <<- result #result
+    bowllist[bowls,25] <<- bat_cap #captain
+    bowllist[bowls,26] <<- bat_wk #wicket keeper
+    
+    overview[ovw,(j-1)+13 + 11*ovw_mult] <<- bowllist[bowls,1] #store in match overview
+    
+  }
+}
+
+```
+
+```{r matchlist}
+matching_sim = function(){
+  
+  teams = strsplit(fixtureExt," vs ")[[1]]
+  
+  ovw <<- ovw + 1
+  overview[ovw,1] <<- i
+  overview[ovw,2] <<- fixtureExt
+  overview[ovw,3] <<- stadium
+  overview[ovw,4] <<- datum
+  overview[ovw,5] <<- tyd
+  overview[ovw,6] <<- teams[1]
+  overview[ovw,7] <<- teams[2]
+  overview[ovw,8] <<- toss
+  overview[ovw,9] <<- decision
+  overview[ovw,10] <<- result
+  overview[ovw,11] <<- bat1init[1,3]
+  overview[ovw,12] <<- bat2init[1,3]
+  overview[ovw,13] <<- home_ground
+}
+
+```
+
+```{r loopthrough}
+Matchlist = read_excel("Data/IPL_SCHEDULE_2008_2021.xlsx",sheet = "IPL_SCHEDULE_2008_2021")
+tot_matches = dim(Matchlist)[1]
+
+batheads = c("Player","MP","MB","NotOut","R","B","4s","6s","SR","Extras","Stadium","Date","Time","Team","Opponent","InningsNum","BatNum","TeamScore","OppScore","Toss","Decision","MatchNum","Result","Captain","WicketKeeper")
+batlist <- setNames(data.frame(matrix(ncol = length(batheads), nrow = tot_matches*22)), batheads)
+
+bowlheads = c("Player","MP","MB","O","M","R","W","NB","WD","ECO","NonBowlExt","Stadium","Date","Time",
+"Team","Opponent","InningsNum","BowlNum","OppScore","OwnScore","Toss","Decision","MatchNum","Result","Captain","WicketKeeper")
+bowllist <- setNames(data.frame(matrix(ncol = length(bowlheads), nrow = tot_matches*22)), bowlheads)
+
+overviewheads = c("MatchNum","Match ","Stadium","Date","Time","Home Team","Away Team","Toss","Decision","Result","First Inn Score","Second Inn Score","Home Ground","Bat_1_1","Bat_1_2","Bat_1_3","Bat_1_4","Bat_1_5","Bat_1_6","Bat_1_7","Bat_1_8","Bat_1_9","Bat_1_10","Bat_1_11",
+       "Bowl_1_1","Bowl_1_2","Bowl_1_3","Bowl_1_4","Bowl_1_5","Bowl_1_6","Bowl_1_7","Bowl_1_8","Bowl_1_9","Bowl_1_10","Bowl_1_11", 
+       "Bat_2_1","Bat_2_2","Bat_2_3","Bat_2_4","Bat_2_5","Bat_2_6","Bat_2_7","Bat_2_8","Bat_2_9","Bat_2_10","Bat_2_11",
+       "Bowl_2_1","Bowl_2_2","Bowl_2_3","Bowl_2_4","Bowl_2_5","Bowl_2_6","Bowl_2_7","Bowl_2_8","Bowl_2_9","Bowl_2_10","Bowl_2_11")
+overview <- setNames(data.frame(matrix(ncol = length(overviewheads), nrow = tot_matches)), overviewheads)
+
+bats = 0
+bowls = 0
+ovw = 0 #overview
+
+for (i in c(1:tot_matches))
+{
+  
+  if (i >= 2 & i <= 178){
+    #these matches had the batting order flipped for some reason
+    fliporder = 1
+  }
+  else {
+    fliporder = 0
+  }
+  
+  fixture = Matchlist[i,5]
+  home_ground = Matchlist[i,11]
+  #matchinfo
+  matchinit = read_excel(paste0("Match/Match ",i,".xlsx"),sheet = "Info")
+  
+  noGame = FALSE
+  tryCatch(read_excel(paste0("Match/Match ",i,".xlsx"),sheet = "BatInnings1"), 
+           error=function(e){
+             noGame <<- TRUE
+           })
+  if (noGame) {
+    print(paste0('Match ',i,' skipped'))
+    next
+  }
+  
+  bat1init = read_excel(paste0("Match/Match ",i,".xlsx"),sheet = "BatInnings1") 
+  bowl1init = read_excel(paste0("Match/Match ",i,".xlsx"),sheet = "BowlInnings1")
+  
+  noSecond = FALSE
+  tryCatch(read_excel(paste0("Match/Match ",i,".xlsx"),sheet = "BatInnings2"), 
+           error=function(e){
+             noSecond <<- TRUE
+           })
+  
+  bat2Score = -1
+  if (!noSecond) {
+    bat2init = read_excel(paste0("Match/Match ",i,".xlsx"),sheet = "BatInnings2")
+    bowl2init = read_excel(paste0("Match/Match ",i,".xlsx"),sheet = "BowlInnings2")
+    bat2Score = bat2init[1,3]
+  }
+  
+  matchinfo = mysub(matchinit,i)
+  bat1 = mysub(bat1init,i)
+  bowl1 = mysub(bowl1init,i)
+  bat2 = mysub(bat2init,i)
+  bowl2 = mysub(bowl2init,i)
+  
+    for (match in c(1:20)){
+    match_cell = matchinfo[match,2]
+    if (is.na(match_cell) | match_cell == "Bench" ){
+      #skip na values
+      next
+    }
+    #result
+    if (str_detect(match_cell," won ") | str_detect(match_cell," abandoned") | str_detect(match_cell," result")) 
+    {
+      result = as.character(match_cell) #weird issue where without the as.character it was a factor type but the results didn't make sense
+    }
+    #date
+    else if (match_cell == "Date"){
+      long_date = as.character.Date(matchinfo[match,3])
+    }
+    #toss
+    else if (match_cell == "Toss"){
+      toss_pre = as.character(matchinfo[match,3])
+      #toss_full = gsub("Supergiants","Supergiant",ifelse(i < 645, gsub("Capitals","Daredevils",toss_pre), gsub("Daredevils","Capitals",toss_pre)))
+      toss_full = gsub("Kings XI Punjab","Punjab Kings",gsub("Supergiants","Supergiant", gsub("Daredevils","Capitals",toss_pre)))
+      toss = sub(" won the toss and opt to .*","",toss_full)
+      decision = sub(".* won the toss and opt to ","",toss_full)
+    }
+    #stadium
+    else if (match_cell == "Venue"){
+      stadium = gsub(" ,",",",as.character(matchinfo[match,3]))
+    }
+    else if (matchinfo[match,3] == "Playing"){
+      # Daredevils to Capitals was just a name change so will just keep as Capitals thoroughout.
+      
+      # if (i < 645){ #before 2018
+      #   new_match_cell = gsub("Supergiants","Supergiant",str_replace(match_cell,"Capitals","Daredevils"),fixed=TRUE)
+      #   new_bat = gsub("Supergiants ","Supergiant ",str_replace(bat1[1,2],"Capitals","Daredevils"),fixed=TRUE)
+      # }
+      # else{
+      #   new_match_cell = gsub("Supergiants","Supergiant",str_replace(match_cell,"Daredevils","Capitals"),fixed=TRUE)
+      #   new_bat = gsub("Supergiants ","Supergiant ",str_replace(bat1[1,2],"Daredevils","Capitals"),fixed=TRUE)
+      # }
+      
+      new_match_cell = gsub("Kings XI Punjab",
+                            "Punjab Kings",gsub("Supergiants","Supergiant",str_replace(match_cell,"Daredevils","Capitals"),fixed=TRUE),fixed=TRUE)
+      new_bat = gsub("Kings XI Punjab","Punjab Kings",gsub("Supergiants ","Supergiant ",str_replace(bat1[1,2],"Daredevils","Capitals"),fixed=TRUE),fixed=TRUE)
+      
+      if (str_detect(new_match_cell,str_replace(new_bat," Innings",""))){
+        bowl2_row = match
+      }
+      else{
+        bowl1_row = match
+      }
+    }
+    
+    #Change batting order for those matches
+  }
+  
+  #match info
+  datumtyd = anytime(as.numeric(long_date)/1000)
+  datum = substr(datumtyd,1,10)
+  tyd = substr(datumtyd,12,19)
+  #View(matchinfo)
+  
+  for (run in c(4:14)){
+    #Captain and wicket Keeper
+    if (str_detect(matchinfo[bowl2_row,run],"\\(c")){
+      bat1_cap = str_replace(str_replace(str_replace(matchinfo[bowl2_row,run]," \\(wk\\)","")," \\(c\\)","")," \\(c & wk\\)","")
+    }
+    if (str_detect(matchinfo[bowl2_row,run],"wk\\)")){
+      bat1_wk = str_replace(str_replace(str_replace(matchinfo[bowl2_row,run]," \\(wk\\)","")," \\(c\\)","")," \\(c & wk\\)","")
+    }
+    if (str_detect(matchinfo[bowl1_row,run],"\\(c")){
+      bat2_cap = str_replace(str_replace(str_replace(matchinfo[bowl1_row,run]," \\(wk\\)","")," \\(c\\)","")," \\(c & wk\\)","")
+    }
+    if (str_detect(matchinfo[bowl1_row,run],"wk\\)")){
+      bat2_wk = str_replace(str_replace(str_replace(matchinfo[bowl1_row,run]," \\(wk\\)","")," \\(c\\)","")," \\(c & wk\\)","")
+    }
+  }
+  
+  team1nameOrg = str_replace(bat1[1,2]," Innings","")
+  # if (i < 645){ #before 2018
+  #   team1name =  gsub("Capitals","Daredevils",gsub("Supergiants","Supergiant",team1nameOrg))
+  #   #Sometimes they abbreviate
+  #   fixtureExt = gsub("CAPITALS","DAREDEVILS",gsub("SUPERGIANTS","SUPERGIANT",fixture))
+  # }
+  # else{
+  #   team1name =  gsub("Daredevils","Capitals",gsub("Supergiants","Supergiant",team1nameOrg))
+  #   #Sometimes they abbreviate
+  #   fixtureExt = gsub("DAREDEVILS","CAPITALS",gsub("SUPERGIANTS","SUPERGIANT",fixture))
+  # }
+  
+  team1name =  gsub("Kings XI Punjab","Punjab Kings",gsub("Daredevils","Capitals",gsub("Supergiants","Supergiant",team1nameOrg)))
+  fixtureExt = gsub("KINGS XI PUNJAB","PUNJAB KINGS",gsub("DAREDEVILS","CAPITALS",gsub("SUPERGIANTS","SUPERGIANT",fixture)))
+  
+  #Kings XI Punjab causes some issues with the XI part
+  (team2name = str_replace(str_replace(str_replace(str_to_title(fixtureExt),"Xi","XI"),team1name,"")," Vs ",""))
+  
+  matching_sim()
+  
+  batting_sim(1)
+  bowling_sim(1)
+  
+  if (noSecond) {
+    #continue if there is no second innings
+    print(paste0('Match ',i,' second innings skipped'))
+    next
+  }
+  
+  batting_sim(2)
+  bowling_sim(2)
+  
+  #Closing Remarks
+  print(paste("Match",i,"done"))
+}
+
+#View(matchinfo)
+#View(bat1)
+#View(bat2)
+#View(bowl1)
+#View(bowl2)
+
+overview = overview[!is.na(overview$MatchNum),]
+View(overview) 
+batred = batlist[1:bats,]
+bowlred = bowllist[1:bowls,]
+View(batred)
+View(bowlred)
+sink()
+
+```
+
+```{r checks}
+table(batlist$Stadium)/22
+table(batlist$Team)/11+table(batlist$Opponent)/11
+table(batlist$Toss)/22
+
+tot_matches
+sum(is.na(overview))/22 # 2 matches with only one innings, 8 matches skipped completely
+dim(overview)
+
+```
+
+```{r saveExcel}
+write.xlsx(batred, file = "Player Stats/Batlist.xlsx",sheetName ="Batlist", append = FALSE)
+write.xlsx(bowlred, file = "Player Stats/Bowllist.xlsx",sheetName ="Bowllist", append = FALSE)
+openxlsx::write.xlsx(overview, file = "Match Grouping/Overview.xlsx",sheetName ="Overview", append = FALSE) #for some reason the normal write function doesn't work here
+
+```
+
+```{r savestate}
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+time.taken
+
+#Savestate so we don't have to rerun computationally intensive parts later
+save.image(file='Player Stats.RData')
+
+```
+
+```{r loadstate}
+#load(file='Player Stats.RData')
+
+```
+
+```{r runabove}
+```
