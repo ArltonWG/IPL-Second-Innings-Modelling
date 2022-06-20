@@ -1,5 +1,5 @@
 ---
-title: "Player Splitter"
+title: "05 Player Splitter"
 author: "Arlton Gilbert"
 date: "23/05/2021"
 output: html_document
@@ -12,14 +12,10 @@ knitr::opts_chunk$set(echo = TRUE)
 setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
 library(stringr)
 library(tidyverse)
-#library(tidyr)
-#library(dplyr)
-#library("readxl")
 library("xlsx")
 library(rvest)
-#library(anytime)
 rm(list=ls())
-#Average Run Time ~ 4min
+#Average Run Time ~ 2.9min
 
 ```
 
@@ -32,7 +28,7 @@ do.call(file.remove, list(list.files("Indiv Stats/Bowl Stats", full.names = TRUE
 
 ```{r loadPlayerStats}
 #Savestate so we don't have to rerun computationally intensive parts later
-load(file='Player Stats.RData')
+load(file='04 Player Stats.RData')
 start.time <- Sys.time()
 
 ```
@@ -83,13 +79,13 @@ time.taken <- end.time - start.time
 time.taken
 
 #Savestate so we don't have to rerun computationally intensive parts later
-save.image(file='Player Splitter.RData')
+save.image(file='05 Player Splitter.RData')
 
 ```
 
 ```{r loadstate}
 #Savestate so we don't have to rerun computationally intensive parts later
-#load(file='Player Splitter.RData')
+#load(file='05 Player Splitter.RData')
 
 ```
 

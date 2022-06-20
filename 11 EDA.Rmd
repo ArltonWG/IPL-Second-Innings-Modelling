@@ -1,5 +1,5 @@
 ---
-title: "EDA"
+title: "11 EDA"
 author: "Arlton Gilbert"
 date: "01/04/2022"
 output: html_document
@@ -9,7 +9,7 @@ output: html_document
 #FILENUM: 11
 #knitr::opts_knit$set(root.dir = dirname(rstudioapi::getActiveDocumentContext()$path))
 setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
-#Average Run Time ~ 15 sec
+#Average Run Time ~ 2 min
 library(tidyverse)
 library("xlsx")
 library(readxl)
@@ -17,55 +17,55 @@ library(corrplot)
 library(ggplot2)
 rm(list=ls())
 
-load(file='Batsmen Stats.RData') #For best batsmen
-load(file='Modelling.RData')
+load(file='06 Batsmen Stats.RData') #For best batsmen
+load(file='10 Modelling.RData')
 start.time <- Sys.time()
 
 ```
 
 ```{r loadMathcInfo}
 #load the fixture list and then breakdown in run-in, training and test     
-new_scorecards = read_xlsx(path = "Data/IPL_SCHEDULE_2008_2021.xlsx",sheet ="IPL_SCHEDULE_2008_2021")
+new_scorecards = read_xlsx(path = "Data/IPL_SCHEDULE_2008_2022.xlsx",sheet ="IPL_SCHEDULE_2008_2022")
 prep = new_scorecards[c(1:118),]
-train = new_scorecards[c(119:824),]
-test = new_scorecards[c(825:dim(new_scorecards)[1]),]
+train = new_scorecards[c(119:884),]
+test = new_scorecards[c(885:dim(new_scorecards)[1]),]
 
 #total matches
-t1 = dim(new_scorecards)[1] #884
-t2 = dim(prep)[1] #118
-t3 = dim(train)[1] #706
-t4 = dim(test)[1] #60
+(t1 = dim(new_scorecards)[1]) #958
+(t2 = dim(prep)[1]) #118
+(t3 = dim(train)[1]) #766
+(t4 = dim(test)[1]) #74
 
 # Abandoned before game
-a1 = dim(new_scorecards[grepl("Match abandoned without a ball bowled|Match abandoned without a ball being bowled|abandoned with a toss",
-                         new_scorecards$Match_Result),])[1] #8
-a2 = dim(prep[grepl("Match abandoned without a ball bowled|Match abandoned without a ball being bowled|abandoned with a toss",prep$Match_Result),])[1] #3 
-a3 = dim(train[grepl("Match abandoned without a ball bowled|Match abandoned without a ball being bowled|abandoned with a toss",train$Match_Result),])[1] #5
-a4 = dim(test[grepl("Match abandoned without a ball bowled|Match abandoned without a ball being bowled|abandoned with a toss",test$Match_Result),])[1] #0
+(a1 = dim(new_scorecards[grepl("Match abandoned without a ball bowled|Match abandoned without a ball being bowled|abandoned with a toss",
+                         new_scorecards$Match_Result),])[1]) #8
+(a2 = dim(prep[grepl("Match abandoned without a ball bowled|Match abandoned without a ball being bowled|abandoned with a toss",prep$Match_Result),])[1]) #3 
+(a3 = dim(train[grepl("Match abandoned without a ball bowled|Match abandoned without a ball being bowled|abandoned with a toss",train$Match_Result),])[1]) #5
+(a4 = dim(test[grepl("Match abandoned without a ball bowled|Match abandoned without a ball being bowled|abandoned with a toss",test$Match_Result),])[1]) #0
 
 # Abandoned during game
-b1 = dim(new_scorecards[grepl("^Match abandoned$|^No result$", new_scorecards$Match_Result),])[1] #4
-b2 = dim(prep[grepl("^Match abandoned$|^No result$",prep$Match_Result),])[1] #0 
-b3 = dim(train[grepl("^Match abandoned$|^No result$",train$Match_Result),])[1] #4
-b4 = dim(test[grepl("^Match abandoned$|^No result$",test$Match_Result),])[1] #0
+(b1 = dim(new_scorecards[grepl("^Match abandoned$|^No result$", new_scorecards$Match_Result),])[1]) #4
+(b2 = dim(prep[grepl("^Match abandoned$|^No result$",prep$Match_Result),])[1]) #0 
+(b3 = dim(train[grepl("^Match abandoned$|^No result$",train$Match_Result),])[1]) #4
+(b4 = dim(test[grepl("^Match abandoned$|^No result$",test$Match_Result),])[1]) #0
 
 # DLS
-c1 = dim(new_scorecards[grepl("method", new_scorecards$Match_Result),])[1] #18
-c2 = dim(prep[grepl("method",prep$Match_Result),])[1] #5 
-c3 = dim(train[grepl("method",train$Match_Result),])[1] #13
-c4 = dim(test[grepl("method",test$Match_Result),])[1] #0 
+(c1 = dim(new_scorecards[grepl("method", new_scorecards$Match_Result),])[1]) #18
+(c2 = dim(prep[grepl("method",prep$Match_Result),])[1]) #5 
+(c3 = dim(train[grepl("method",train$Match_Result),])[1]) #13
+(c4 = dim(test[grepl("method",test$Match_Result),])[1]) #0 
 
 # Match tied
-d1 = dim(new_scorecards[grepl("Match tied", new_scorecards$Match_Result),])[1] #14
-d2 = dim(prep[grepl("Match tied",prep$Match_Result),])[1] #1 
-d3 = dim(train[grepl("Match tied",train$Match_Result),])[1] #12
-d4 = dim(test[grepl("Match tied",test$Match_Result),])[1] #1
+(d1 = dim(new_scorecards[grepl("Match tied", new_scorecards$Match_Result),])[1]) #14
+(d2 = dim(prep[grepl("Match tied",prep$Match_Result),])[1]) #1 
+(d3 = dim(train[grepl("Match tied",train$Match_Result),])[1]) #13
+(d4 = dim(test[grepl("Match tied",test$Match_Result),])[1]) #0
 
 # Remaing Matches
-t1 - a1 - b1 - c1 - d1 #840
+t1 - a1 - b1 - c1 - d1 #914
 t2 - a2 - b2 - c2 - d2 #109
-t3 - a3 - b3 - c3 - d3 #672
-t4 - a4 - b4 - c4 - d4 #59
+t3 - a3 - b3 - c3 - d3 #731
+t4 - a4 - b4 - c4 - d4 #74
 
 ```
 
@@ -286,12 +286,12 @@ time.taken <- end.time - start.time
 time.taken
 
 # Savestate so we don't have to rerun computationally intensive parts later
-save.image(file='EDA.RData')
+save.image(file='11 EDA.RData')
 
 ```
 
 ```{r loadstate}
-#load(file='EDA.RData')
+#load(file='11 EDA.RData')
 
 ```
 

@@ -1,5 +1,5 @@
 ---
-title: "WebScraper"
+title: "04 Player Stats"
 author: "Arlton Gilbert"
 date: "04/04/2021"
 output: html_document
@@ -18,7 +18,7 @@ library(anytime)
 library("readxl")
 rm(list=ls())
 start.time <- Sys.time()
-#Average Run Time ~ 11.33min
+#Average Run Time ~ 13.9min
 
 ```
 
@@ -171,6 +171,14 @@ batting_sim = function(innings,bat){
         bat[j,2] = temp_name
         print(paste0("ASHWINS FIXED"))
       }
+      #Shikhar Dhawan and Rishi Dhawan sometimes play for the same team
+      else if (str_detect(playername,"Dhawan")){
+        temp_name = str_replace(str_replace(playername,"Dhawan","Shikhar Dhawan"),"Rishi Shikhar Dhawan","Rishi Dhawan")
+        batlist[bats,1] <<- temp_name
+
+        bat[j,2] = temp_name
+        print(paste0("DHAWANS FIXED"))
+      }
       else{
         print(paste0("ERROR WITH BATSMAN",playername,". MULTIPLE NAMES MATCHED"))        
       }
@@ -179,23 +187,23 @@ batting_sim = function(innings,bat){
       print(paste0("ERROR WITH BATSMAN ",playername,". NAME NOT FOUND IN TEAM LIST"))
     }
       
-      batlist[bats,3] <<- 1 #MB
-      batlist[bats,17] <<- abs(revbat - (j - 3)) #Batting Num 
-      overview[ovw,abs(revbat - (j - 2))+13 + 11*ovw_mult] <<- batlist[bats,1] #store in match overview
-      
-      if (bat[j,3]=="not out"){
-        batlist[bats,4] <<- 1 #Not Out  
-      }
-      else{
-        batlist[bats,4] <<- 0 #Out
-      }
-      
-      batlist[bats,5] <<- bat[j,4] #Runs
-      batlist[bats,6] <<- bat[j,5] #Balls
-      batlist[bats,7] <<- bat[j,6] #4s
-      batlist[bats,8] <<- bat[j,7] #6s
-      batlist[bats,9] <<- bat[j,8] #SR
-      batlist[bats,10] <<- Ex_bat #Extras
+    batlist[bats,3] <<- 1 #MB
+    batlist[bats,17] <<- abs(revbat - (j - 2)) #Batting Num 
+    overview[ovw,abs(revbat - (j - 2))+13 + 11*ovw_mult] <<- batlist[bats,1] #store in match overview
+    
+    if (bat[j,3]=="not out"){
+      batlist[bats,4] <<- 1 #Not Out  
+    }
+    else{
+      batlist[bats,4] <<- 0 #Out
+    }
+    
+    batlist[bats,5] <<- bat[j,4] #Runs
+    batlist[bats,6] <<- bat[j,5] #Balls
+    batlist[bats,7] <<- bat[j,6] #4s
+    batlist[bats,8] <<- bat[j,7] #6s
+    batlist[bats,9] <<- bat[j,8] #SR
+    batlist[bats,10] <<- Ex_bat #Extras
     }
     
     batlist[bats,2] <<- 1 #MP
@@ -313,12 +321,19 @@ bowling_sim = function(innings){
     }
     
     if (matched_names > 1){
-      #Ravichandran Ashwin and Murugan Ashwin sometimes play for the same team
+      #Ravichandran Ashwin and Murugan Ashwin sometimes play for the same teams
       if (str_detect(playername,"Ashwin")){
         temp_name = str_replace(str_replace(playername,"Ashwin","Ravichandran Ashwin"),"M Ravichandran Ashwin","Murugan Ashwin")
         bowllist[bowls,1] <<- temp_name
         bowl[j,2] = temp_name
         print(paste0("ASHWINS FIXED"))
+      }
+      #Shikhar Dhawan and Rishi Dhawan sometimes play for the same team
+      else if (str_detect(playername,"Dhawan")){
+        temp_name = str_replace(str_replace(playername,"Dhawan","Shikhar Dhawan"),"Rishi Shikhar Dhawan","Rishi Dhawan")
+        bowllist[bowls,1] <<- temp_name
+        bowl[j,2] = temp_name
+        print(paste0("DHAWANS FIXED"))
       }
       else{
         print(paste0("ERROR WITH BOWLER ",playername,". MULTIPLE NAMES MATCHED"))       
@@ -385,7 +400,7 @@ matching_sim = function(){
 ```
 
 ```{r loopthrough}
-Matchlist = read_excel("Data/IPL_SCHEDULE_2008_2021.xlsx",sheet = "IPL_SCHEDULE_2008_2021")
+Matchlist = read_excel("Data/IPL_SCHEDULE_2008_2022.xlsx",sheet = "IPL_SCHEDULE_2008_2022")
 tot_matches = dim(Matchlist)[1]
 
 batheads = c("Player","MP","MB","NotOut","R","B","4s","6s","SR","Extras","Stadium","Date","Time","Team","Opponent","InningsNum","BatNum","TeamScore","OppScore","Toss","Decision","MatchNum","Result","Captain","WicketKeeper")
@@ -605,12 +620,12 @@ time.taken <- end.time - start.time
 time.taken
 
 #Savestate so we don't have to rerun computationally intensive parts later
-save.image(file='Player Stats.RData')
+save.image(file='04 Player Stats.RData')
 
 ```
 
 ```{r loadstate}
-#load(file='Player Stats.RData')
+#load(file='04 Player Stats.RData')
 
 ```
 

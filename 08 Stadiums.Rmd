@@ -1,5 +1,5 @@
 ---
-title: "Stadiums"
+title: "08 Stadiums"
 author: "Arlton Gilbert"
 date: "16/09/2021"
 output: html_document
@@ -20,7 +20,7 @@ rm(list=ls())
 #ensure old files are not left there
 do.call(file.remove, list(list.files("Stadiums/Inn 1", full.names = TRUE)))
 do.call(file.remove, list(list.files("Stadiums/Inn 2", full.names = TRUE)))
-load(file='Player Stats.RData')
+load(file='04 Player Stats.RData')
 #Average Run Time ~
 start.time <- Sys.time()
 
@@ -199,12 +199,12 @@ time.taken <- end.time - start.time
 time.taken
 
 #Savestate so we don't have to rerun computationally intensive parts later
-save.image(file='Stadiums.RData')
+save.image(file='08 Stadiums.RData')
 
 ```
 
 ```{r loadstate}
-#load(file='Stadiums.RData')
+#load(file='08 Stadiums.RData')
 
 ```
 

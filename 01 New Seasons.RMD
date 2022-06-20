@@ -1,0 +1,95 @@
+---
+title: "01 New Seasons"
+author: "Arlton Gilbert"
+date: "12/06/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+#FILENUM: 1
+knitr::opts_chunk$set(echo = TRUE)
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+library(rvest) #used for webscraping 
+library("stringr")
+library("xlsx")
+rm(list=ls())
+start.time <- Sys.time()
+#Average Run Time ~ 3min
+```
+
+```{r season_function}
+
+fileName = "Data/IPL_SCHEDULE_2021_2022 Extension.xlsx"
+
+newseasons = function(url, season){
+    matchlist202x = read_html(url) 
+    matches202x = matchlist202x %>% html_nodes(".cb-text-complete") %>% html_attr('href')
+    matches202xdf = as.data.frame(matches202x)
+
+    #Populating extra columns
+    matches202xdf$Match_URL = ""
+    matches202xdf$Match_Result = 0
+    matches202xdf$Match_Date = 0
+    matches202xdf$Stadium = 0
+    matches202xdf$Location = 0
+    matches202xdf$Match_Team = 0
+    count = 1
+
+    for (new_match in matches202xdf$matches202x){
+        match_url = paste0("https://www.cricbuzz.com",new_match,"")
+        tryCatch({
+            matchi = read_html(match_url)
+            matches202xdf$Match_Result[count] = matchi %>% html_nodes('.cb-text-complete') %>% html_text()
+            matches202xdf$Match_URL[count] = match_url 
+            stadiums = matchi %>% html_nodes('.text-gray span')
+            matches202xdf$Match_Date[count] = paste0((matchi %>% html_nodes('.pad-left+ span span , .pad-left~ .pad-left'))[2] %>% html_text(),season)  
+            matches202xdf$Stadium[count] = gsub(",","",str_trim(stadiums[1] %>% html_text()))
+            matches202xdf$Location[count] = stadiums[2] %>% html_text()   
+            matches202xdf$Match_Team[count] = gsub("VS","vs",toupper(strsplit(matchi %>% html_nodes('.line-ht24') %>% html_text(),",")[[1]][1]))
+        },
+        error = function(e){
+
+        })
+        
+        count = count + 1
+    }
+
+    matches202x_red = subset(matches202xdf, select = -c(matches202x))
+    matches202x_red2 = matches202x_red[matches202x_red$Match_URL!="",]
+    write.xlsx(matches202x_red2, file = fileName,sheetName = paste0(season), append = TRUE)
+
+}
+
+```
+
+```{r season}
+ipl2021matchURL = "https://www.cricbuzz.com/cricket-series/3472/indian-premier-league-2021/matches"
+ipl2022matchURL = "https://www.cricbuzz.com/cricket-series/4061/indian-premier-league-2022/matches"
+
+if (file.exists(fileName)) {
+    file.remove(fileName)
+}
+
+newseasons(ipl2021matchURL, 2021)
+newseasons(ipl2022matchURL, 2022)
+
+```
+
+```{r savestate}
+end.time <- Sys.time()
+time.taken <- end.time - start.time
+time.taken
+
+#Savestate so we don't have to rerun computationally intensive parts later
+save.image(file='01 New Seasons.RData')
+
+```
+
+```{r loadstate}
+#Savestate so we don't have to rerun computationally intensive parts later
+#load(file='01 New Seasons.RData')
+
+```
+
+```{r runabove}
+```

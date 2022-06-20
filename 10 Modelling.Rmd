@@ -1,5 +1,5 @@
 ---
-title: "Modelling"
+title: "10 Modelling"
 author: "Arlton Gilbert"
 date: "12/08/2021"
 output: html_document
@@ -21,7 +21,7 @@ library(lava) #for trim
 library(naivebayes)
 #knitr::opts_knit$set(root.dir = dirname(rstudioapi::getActiveDocumentContext()$path))
 setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
-#Average Run Time ~ 5 min
+#Average Run Time ~ 11.03 min
 rm(list=ls())
 start.time <- Sys.time()
 
@@ -40,15 +40,14 @@ data_format$`Defending Toss` = as.factor(data_format$`Defending Toss`)
 data_format$`Defending Result` = as.factor(data_format$`Defending Result`)
 View(data_format)
 str(data_format)
-#Average Run time ~ 
 
 ```
 
 ```{r split_data} 
 
 #Split into train and test
-train_full = data_format[c(1:684),]
-test_full = data_format[c(685:dim(data_format)[1]),] #the last season of results
+train_full = data_format[c(1:741),]
+test_full = data_format[c(742:dim(data_format)[1]),] #the last season of results
 
 ```
 
@@ -288,7 +287,7 @@ ggtitle("Distribution of Predictions for Logistic Regression") + theme(plot.titl
 
 image_file = 'Logistic.jpg'
 ggsave(paste0('Images/',image_file))
-ggsave(paste0('C:/Users/arlto/Google Drive/Arlton Gilbert MSc/Write-up/Current Version/images/',image_file))
+ggsave(paste0('C:/Users/arlto/My Drive/Arlton Gilbert MSc/Write-up/Current Version/images/',image_file))
 
 ```
 
@@ -471,7 +470,7 @@ ggtitle("Distribution of Predictions for Classification Trees") + theme(plot.tit
 
 image_file = 'tree.jpg'
 ggsave(paste0('Images/',image_file))
-ggsave(paste0('C:/Users/arlto/Google Drive/Arlton Gilbert MSc/Write-up/Current Version/images/',image_file))
+ggsave(paste0('C:/Users/arlto/My Drive/Arlton Gilbert MSc/Write-up/Current Version/images/',image_file))
 
 ```
 
@@ -555,7 +554,7 @@ ggtitle('Bagging Variable Importance') + theme(plot.title = element_text(hjust =
 
 image_file = 'Bagging Importance.jpg'
 ggsave(paste0('Images/',image_file))
-ggsave(paste0('C:/Users/arlto/Google Drive/Arlton Gilbert MSc/Write-up/Current Version/images/',image_file))
+ggsave(paste0('C:/Users/arlto/My Drive/Arlton Gilbert MSc/Write-up/Current Version/images/',image_file))
 
 ```
 
@@ -628,7 +627,7 @@ ggtitle("Distribution of Predictions for Bagging") + theme(plot.title = element_
 
 image_file = 'bag.jpg'
 ggsave(paste0('Images/',image_file))
-ggsave(paste0('C:/Users/arlto/Google Drive/Arlton Gilbert MSc/Write-up/Current Version/images/',image_file))
+ggsave(paste0('C:/Users/arlto/My Drive/Arlton Gilbert MSc/Write-up/Current Version/images/',image_file))
 
 ```
 
@@ -686,7 +685,7 @@ ylab("OOB Error")+ xlab("m") + ggtitle("OOB Error vs values for m") + theme(plot
 
 image_file = 'OOB min RF.jpg'
 ggsave(paste0('Images/',image_file))
-ggsave(paste0('C:/Users/arlto/Google Drive/Arlton Gilbert MSc/Write-up/Current Version/images/',image_file))
+ggsave(paste0('C:/Users/arlto/My Drive/Arlton Gilbert MSc/Write-up/Current Version/images/',image_file))
 
 
 ```
@@ -719,7 +718,7 @@ legend('topright', legend = c('Bagging', 'Random Forest'), col = c('black', 'red
 dev.off()
 
 # 1. Open jpeg file
-jpeg(paste0('C:/Users/arlto/Google Drive/Arlton Gilbert MSc/Write-up/Current Version/images/',image_file), width = 450, height = 450)
+jpeg(paste0('C:/Users/arlto/My Drive/Arlton Gilbert MSc/Write-up/Current Version/images/',image_file), width = 450, height = 450)
 # 2. Create the plot
 # compare OOB errors:
 plot(rf_cric$err.rate[, 'OOB'], type = 's', xlab = 'Number of trees', ylab = 'OOB error', col = 'red', main = "Out of Bag Error Comparison")
@@ -763,7 +762,7 @@ ggtitle('Random Forest Variable Importance') + theme(plot.title = element_text(h
 
 image_file = 'Random Forest Importance.jpg'
 ggsave(paste0('Images/',image_file))
-ggsave(paste0('C:/Users/arlto/Google Drive/Arlton Gilbert MSc/Write-up/Current Version/images/',image_file))
+ggsave(paste0('C:/Users/arlto/My Drive/Arlton Gilbert MSc/Write-up/Current Version/images/',image_file))
 
 ```
 
@@ -833,7 +832,7 @@ ggtitle("Distribution of Predictions for Random Forest") + theme(plot.title = el
 
 image_file = 'rf.jpg'
 ggsave(paste0('Images/',image_file))
-ggsave(paste0('C:/Users/arlto/Google Drive/Arlton Gilbert MSc/Write-up/Current Version/images/',image_file))
+ggsave(paste0('C:/Users/arlto/My Drive/Arlton Gilbert MSc/Write-up/Current Version/images/',image_file))
 
 ```
 
@@ -984,7 +983,7 @@ ggtitle("Distribution of Predictions for Boosting") + theme(plot.title = element
 
 image_file = 'boost.jpg'
 ggsave(paste0('Images/',image_file))
-ggsave(paste0('C:/Users/arlto/Google Drive/Arlton Gilbert MSc/Write-up/Current Version/images/',image_file))
+ggsave(paste0('C:/Users/arlto/My Drive/Arlton Gilbert MSc/Write-up/Current Version/images/',image_file))
 
 ```
 
@@ -1209,7 +1208,7 @@ ggtitle("Distribution of Predictions for Neural Network") + theme(plot.title = e
 
 image_file = 'Neural Network.jpg'
 ggsave(paste0('Images/',image_file))
-ggsave(paste0('C:/Users/arlto/Google Drive/Arlton Gilbert MSc/Write-up/Current Version/images/',image_file))
+ggsave(paste0('C:/Users/arlto/My Drive/Arlton Gilbert MSc/Write-up/Current Version/images/',image_file))
 
 ```
 
@@ -1280,7 +1279,7 @@ ggtitle("Distribution of Predictions for Naive Bayes") + theme(plot.title = elem
 
 image_file = 'Naive Bayes.jpg'
 ggsave(paste0('Images/',image_file))
-ggsave(paste0('C:/Users/arlto/Google Drive/Arlton Gilbert MSc/Write-up/Current Version/images/',image_file))
+ggsave(paste0('C:/Users/arlto/My Drive/Arlton Gilbert MSc/Write-up/Current Version/images/',image_file))
 
 ```
 
@@ -1290,12 +1289,12 @@ time.taken <- end.time - start.time
 time.taken
 
 # Savestate so we don't have to rerun computationally intensive parts later
-save.image(file='Modelling.RData')
+save.image(file='10 Modelling.RData')
 
 ```
 
 ```{r loadstate}
-#load(file='Modelling.RData')
+#load(file='10 Modelling.RData')
 
 ```
 

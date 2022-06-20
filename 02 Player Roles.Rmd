@@ -1,5 +1,5 @@
 ---
-title: "WebScraper"
+title: "02 Player Roles"
 author: "Arlton Gilbert"
 date: "04/04/2021"
 output: html_document
@@ -31,11 +31,12 @@ This file gets the player roles and link to their profile
 
 ```{r excel_loop}
 extra = 0#after match 584 they added powerplay info to scorecard
-schedule = read_xlsx(path = "Data/IPL_SCHEDULE_2008_2021.xlsx",sheet ="IPL_SCHEDULE_2008_2021")[,1:11]
-profilelist <- setNames(data.frame(matrix(ncol = 5, nrow = 1000*22)),c("Match","Player","Profile","Position","Country"))
-pl = 1
+schedule = read_xlsx(path = "Data/IPL_SCHEDULE_2008_2022.xlsx",sheet ="IPL_SCHEDULE_2008_2022")[,1:11]
 tot_matches = dim(schedule)[1]
-#824 matches
+profilelist <- setNames(data.frame(matrix(ncol = 5, nrow = tot_matches*22)),c("Match","Player","Profile","Position","Country"))
+pl = 1
+
+#958 matches
 for (i in c(1:tot_matches))
   {
   #initial connection
@@ -44,45 +45,55 @@ for (i in c(1:tot_matches))
   match_scorecard = str_replace(str_replace(match, "live-cricket-scores", "live-cricket-scorecard"), "cricket-scores", "live-cricket-scorecard")
   matchi = read_html(match_scorecard)
   
-    table_result =  matchi %>% html_nodes(".margin0.text-black.text-hvr-underline") %>% html_attr('href')
+  table_result =  matchi %>% html_nodes(".margin0.text-black.text-hvr-underline") %>% html_attr('href')
   
-    for (profile in table_result){
-      if (str_detect(profile,"profile"))
-      {
-        full_profile = paste0("https://www.cricbuzz.com",profile)
-        if (full_profile %in% profilelist[1:pl,"Profile"]){
-          next
-        }
-        profile_i = read_html(full_profile)
-        roles =  profile_i %>% html_nodes('.cb-lst-itm-sm')
-        name = str_trim(profile_i %>% html_nodes('.cb-font-40') %>% html_text())
-        country =  str_trim(profile_i %>% html_nodes('.cb-font-18') %>% html_text())
-        found = 0        
-        for (role in roles){
-          temp = str_trim(role %>% html_text())
-          if (found == 1)
+  for (profile in table_result){
+    if (str_detect(profile,"profile"))
+    {
+      full_profile = paste0("https://www.cricbuzz.com",profile)
+      if (full_profile %in% profilelist[1:pl,"Profile"]){
+        next
+      }
+      profile_i = read_html(full_profile)
+      roles =  profile_i %>% html_nodes('.cb-lst-itm-sm')
+      name = str_trim(profile_i %>% html_nodes('.cb-font-40') %>% html_text())
+      country =  str_trim(profile_i %>% html_nodes('.cb-font-18') %>% html_text())
+      found = 0        
+      for (role in roles){
+        temp = str_trim(role %>% html_text())
+        if (found == 1)
+        {
+          profilelist[pl,1] = i #matchnum
+          profilelist[pl,2] = name # Name
+          profilelist[pl,3] = full_profile # Profile
+          profilelist[pl,4] = temp # Position   
+          profilelist[pl,5] = country # Country
+          if (profilelist[pl,2] == "")
           {
-            profilelist[pl,1] = i #matchnum
-            profilelist[pl,2] = name # Name
-            profilelist[pl,3] = full_profile # Profile
-            profilelist[pl,4] = temp # Position   
-            profilelist[pl,5] = country # Country   
-            pl = pl + 1
-            break
-          }
-          if (temp == "Role"){
-            found = 1  
-          }
+            #Weird issue where details for random players aren't being populated
+            print(paste("Details for",full_profile,"missing"))
+          }   
+          pl = pl + 1
+          break
+        }
+        if (temp == "Role"){
+          found = 1  
         }
       }
     }
+  }
     print(paste("Match",i,"done"))
   }
-
 
 profileshort = profilelist[1:pl-1,]
 View(profileshort)
 
+```
+
+```{r missing}
+#Strange thing happening recently where some details are not being pulled out which is seen when arranging by Name
+#profileshort[profileshort$Profile=="https://www.cricbuzz.com/profiles/10647/nathu-singh",] = c(525,"Nathu Singh","https://www.cricbuzz.com/profiles/10647/nathu-singh","Bowler","India")
+#View(profileshort)
 ```
 
 ```{r manual_edits}
@@ -123,6 +134,7 @@ table(profilered$Position)
 table(profilered$Country)
 #head(profilered,40)
 View(profilered)
+dim(profilered)
 
 ```
 
@@ -132,13 +144,13 @@ time.taken <- end.time - start.time
 time.taken
 
 #Savestate so we don't have to rerun computationally intensive parts later
-save.image(file='Player Roles.RData')
+save.image(file='02 Player Roles.RData')
 
 ```
 
 ```{r loadstate}
 #Savestate so we don't have to rerun computationally intensive parts later
-#load(file='Player Roles.RData')
+#load(file='02 Player Roles.RData')
 
 ```
 
@@ -146,12 +158,6 @@ save.image(file='Player Roles.RData')
 write.xlsx(profilered, file = "Player Roles/profilelist.xlsx",sheetName ="profilelist", append = FALSE)
 
 ```
-
-```{r checks}
-
-
-```
-
 
 ```{r runabove}
 ```

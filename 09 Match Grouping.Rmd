@@ -14,7 +14,7 @@ library(tidyverse)
 library("readxl")
 library(openxlsx)
 library("stringr")
-#Average Run Time ~ 8 second
+#Average Run Time ~ 1.43 min
 rm(list=ls())
 
 ```
@@ -22,9 +22,9 @@ rm(list=ls())
 ```{r clearprevious}
 #ensure old files are not left there
 do.call(file.remove, list(list.files("Match Grouping", full.names = TRUE)))
-load(file='Batsmen Stats.RData')
-load(file='Bowler Stats.RData')
-load(file='Stadiums.RData')
+load(file='06 Batsmen Stats.RData')
+load(file='07 Bowler Stats.RData')
+load(file='08 Stadiums.RData')
 
 ```
 
@@ -37,7 +37,7 @@ sink("Match Grouping/Log.txt")
 
 ```{r overstats}
 overstats = overview
-#tot_matches = 884 #Should come through in previous files
+#tot_matches = 958 #Should come through in previous files
 
 for (i in c(1:tot_matches))
 {
@@ -143,7 +143,7 @@ table(model_data$`Chasing Team`)
 ```
 
 ```{r dimensions}
-dimensions = read_excel("Stadiums/Stadiums.xlsx",sheet = "Sheet1")
+dimensions = read_excel("Stadiums/Stadiums.xlsx",sheet = "Stadium Assigned")
 
 ```
 
@@ -196,12 +196,12 @@ time.taken <- end.time - start.time
 time.taken
 
 #Savestate so we don't have to rerun computationally intensive parts later
-save.image(file='Match Grouping.RData')
+save.image(file='09 Match Grouping.RData')
 
 ```
 
 ```{r loadstate}
-#load(file='Match Grouping.RData')
+#load(file='09 Match Grouping.RData')
 
 ```
 

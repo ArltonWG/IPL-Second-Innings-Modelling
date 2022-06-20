@@ -1,5 +1,5 @@
 ---
-title: "Bowler Stats"
+title: "07 Bowler Stats"
 author: "Arlton Gilbert"
 date: "23/05/2021"
 output: html_document
@@ -10,18 +10,13 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 #knitr::opts_knit$set(root.dir = dirname(rstudioapi::getActiveDocumentContext()$path))
 setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
-#library(stringr)
 library(tidyverse)
-#library(tidyr)
-#library(dplyr)
 library("xlsx")
-#library(rvest)
-#library(anytime)
 library("readxl")
 library(zoo)
 library(openxlsx)#normal excel wasn't writing 
 rm(list=ls())
-#Average Run Time ~ 36min
+#Average Run Time ~ 23.34min
 
 ```
 
@@ -34,8 +29,8 @@ do.call(file.remove, list(list.files("Indiv Stats Ext/Group Bowl Stats Ext", ful
 
 ```{r loadings}
 #To get the bowler names
-load(file='Player Roles.RData')
-load(file='Player Splitter.RData')
+load(file='02 Player Roles.RData')
+load(file='05 Player Splitter.RData')
 start.time <- Sys.time()
 sink("Indiv Stats Ext/Bowl Log.txt")
 
@@ -49,7 +44,7 @@ mult = 100000 #scale to make more readable
 
 #Player Roles
 #colnames(bowlext) #to copy the names
-stat_heads = c("...1","Player","MP","MB","O","M","R","W","NB","WD","ECO","NonBowlExt","Stadium","Date","Time","Team","Opponent","InningsNum",
+stat_heads = c("Player","MP","MB","O","M","R","W","NB","WD","ECO","NonBowlExt","Stadium","Date","Time","Team","Opponent","InningsNum",
 "BowlNum","OppScore","OwnScore","Toss","Decision","MatchNum","Result","Captain","WicketKeeper","Full Overs","Sub Balls","Match Balls","Team Overs","Team Overs Started","Own Overs Started","Contribution Score","Role","Cleaned Role","Country","Matches Played","Matches Bowled","Tot Balls","Tot Overs","Tot Maidens","Tot Runs","Tot Wickets","Tot Contribution Score","Bowling Average","Bowling Strike Rate","Career Bowl Score","Weighted Career Bowl Score","Running Matches Played","Running Matches Bowled","Running Contribution Score","Running Runs","Running Balls","Running Maidens","Running Wickets","Running Bowling Average","Running Bowling Strike Rate","Running Bowl Score","Weighted Running Bowl Score","Bowling Strength","Weighted Bowling Strength")
 
 #Overall Stats
@@ -252,7 +247,6 @@ foreign_bowler_bowl_clear = foreign_bowler_bowl_scores %>% filter(`Running Match
 ```
 
 ```{r matchstats}
-#tot_matches = 824 #Should be 884 coming through from loaded files
 bowl_col_names = c("Real Match Num","MatchNum","Avg All Bowl Strength","Avg Batsman Bowl Strength","Avg Bat Allrounder Bowl Strength","Avg Bowl Allrounder Bowl Strength","Avg Bowler Bowl Strength","Avg All Bowl Weighted Strength","Avg Batsman Bowl Weighted Strength","Avg Bat Allrounder Bowl Weighted Strength","Avg Bowl Allrounder Bowl Weighted Strength","Avg Bowler Bowl Weighted Strength")
 col_tots = length(bowl_col_names)
 
@@ -394,12 +388,12 @@ time.taken <- end.time - start.time
 time.taken
 
 #Savestate so we don't have to rerun computationally intensive parts later
-save.image(file='Bowler Stats.RData')
+save.image(file='07 Bowler Stats.RData')
 
 ```
 
 ```{r loadstate}
-#load(file='Bowler Stats.RData')
+#load(file='07 Bowler Stats.RData')
 
 ```
 

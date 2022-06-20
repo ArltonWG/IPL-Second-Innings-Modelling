@@ -1,5 +1,5 @@
 ---
-title: "WebScraper"
+title: "03 WebScraper"
 author: "Arlton Gilbert"
 date: "04/04/2021"
 output: html_document
@@ -11,15 +11,13 @@ knitr::opts_chunk$set(echo = TRUE)
 #knitr::opts_knit$set(root.dir = dirname(rstudioapi::getActiveDocumentContext()$path))
 setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
 library(tidyverse)
-#library(tidyr)
-#library(dplyr)
 library("xlsx")
 library(readxl)
 library(rvest)
 library(anytime)
 rm(list=ls())
 start.time <- Sys.time()
-#Average Run Time ~ 35 Min
+#Average Run Time ~ 33.8 Min
 
 ```
 
@@ -117,7 +115,7 @@ innings = function(num,file){
 
 ```{r excel_loop}
 extra = 0#after match 584 they added powerplay info to scorecard
-schedule = read_xlsx(path = "Data/IPL_SCHEDULE_2008_2021.xlsx",sheet ="IPL_SCHEDULE_2008_2021")[,1:11]
+schedule = read_xlsx(path = "Data/IPL_SCHEDULE_2008_2022.xlsx",sheet ="IPL_SCHEDULE_2008_2022")[,1:11]
 tot_matches = dim(schedule)[1]
 #for (i in c(1:dim(schedule)[1])){
 for (i in c(1:tot_matches)){
@@ -160,12 +158,12 @@ time.taken <- end.time - start.time
 time.taken
 
 #Savestate so we don't have to rerun computationally intensive parts later
-save.image(file='WebScraper.RData')
+save.image(file='03 WebScraper.RData')
 
 ```
 
 ```{r loadstate}
-#load(file='WebScraper.RData')
+#load(file='03 WebScraper.RData')
 
 ```
 

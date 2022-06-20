@@ -1,5 +1,5 @@
 ---
-title: "Batsmen Stats"
+title: "06 Batsmen Stats"
 author: "Arlton Gilbert"
 date: "23/05/2021"
 output: html_document
@@ -10,18 +10,13 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 #knitr::opts_knit$set(root.dir = dirname(rstudioapi::getActiveDocumentContext()$path))
 setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
-#library(stringr)
 library(tidyverse)
-#library(tidyr)
-#library(dplyr)
 library("xlsx")
-#library(rvest)
-#library(anytime)
 library("readxl")
 library(zoo) #rollaply
 library(openxlsx) #normal excel wasn't writing 
 rm(list=ls())
-#Average Run Time ~ 44min
+#Average Run Time ~ 20.74min
 
 ```
 
@@ -34,8 +29,8 @@ do.call(file.remove, list(list.files("Indiv Stats Ext/Group Bat Stats Ext", full
 
 ```{r loadings}
 #To get the batsmen names
-load(file='Player Roles.RData') #roles 
-load(file='Player Splitter.RData') #batnames
+load(file='02 Player Roles.RData') #roles 
+load(file='05 Player Splitter.RData') #batnames
 start.time <- Sys.time()
 sink("Indiv Stats Ext/Bat Log.txt")
 
@@ -48,7 +43,7 @@ mu = 0.8
 
 #Player Roles
 #colnames(batext) #to copy the names
-stat_heads = c("...1","Player","MP","MB","NotOut","R","B","4s","6s","SR",
+stat_heads = c("Player","MP","MB","NotOut","R","B","4s","6s","SR",
 "Extras","Stadium","Date","Time","Team","Opponent","InningsNum","BatNum","TeamScore","OppScore",
 "Toss","Decision","MatchNum","Result","Captain","WicketKeeper","Role","Cleaned Role","Country","Matches Played","Matches Batted","Tot Not Outs","Tot Runs","Tot Balls","Tot 4s","Tot 6s","Unedited Average","Average","Strike Rate","Career Bat Score","Weighted Career Bat Score","Running Matches Played","Running Matches Batted","Running Not Outs","Running Runs","Running Balls","Running Unedited Average","Running Average","Running Strike Rate","Running Bat Score","Weighted Running Bat Score","Batting Strength","Weighted Batting Strength")
 
@@ -76,7 +71,7 @@ foreign_bowler_bat_scores=setNames(data.frame(matrix(ncol=ncols,nrow=0)),stat_he
 
 for (name in batnames$Player){
   batinfo = read_excel(paste0("Indiv Stats/Bat Stats/",name," Bat.xlsx"),sheet = "Bat")
-    = profilered[tolower(profilered$Player) == tolower(name), "Position"]
+  role = profilered[tolower(profilered$Player) == tolower(name), "Position"]
   country = profilered[tolower(profilered$Player) == tolower(name), "Country"]
   
   print(paste0('processing ',name))
@@ -99,7 +94,7 @@ for (name in batnames$Player){
     `Tot 4s` = cumsum(ifelse(is.na(batinfo$`4s`),0,batinfo$`4s`)),
     `Tot 6s` = cumsum(ifelse(is.na(batinfo$`6s`),0,batinfo$`6s`)),
     `Unedited Average` = `Tot Runs`/(`Matches Batted` - `Tot Not Outs`),
-     Average = ifelse((`Matches Batted` - `Tot Not Outs`)>0,`Tot Runs`/(`Matches Batted` - `Tot Not Outs`),`Tot Runs`),
+    Average = ifelse((`Matches Batted` - `Tot Not Outs`)>0,`Tot Runs`/(`Matches Batted` - `Tot Not Outs`),`Tot Runs`),
     `Strike Rate` = ifelse(`Tot Balls`>0,(`Tot Runs`/`Tot Balls`)*100,0),
     `Career Bat Score` = Average * `Strike Rate`,
     `Weighted Career Bat Score` = sqrt(`Matches Batted`/`Matches Played`)*`Career Bat Score`,
@@ -194,7 +189,6 @@ View(best_bat)
 weighted_best_bat = all_bat_bat_scores %>% filter(`Matches Played`>=mom) %>% arrange(desc(`Weighted Batting Strength`)) %>% distinct(Player,.keep_all = TRUE) %>% head(20)
 View(weighted_best_bat)
 
-
 ```
 
 
@@ -246,7 +240,6 @@ foreign_bowler_bat_clear = foreign_bowler_bat_scores %>% filter(`Running Matches
 ```
 
 ```{r matchstats}
-#tot_matches = 824 #Should be 884 coming through from loaded files
 bat_col_names = c("Real Match Num","MatchNum","Avg All Bat Strength","Avg Batsman Bat Strength","Avg Bat Allrounder Bat Strength","Avg Bowl Allrounder Bat Strength","Avg Bowler Bat Strength","Avg All Bat Weighted Strength","Avg Batsman Bat Weighted Strength","Avg Bat Allrounder Bat Weighted Strength","Avg Bowl Allrounder Bat Weighted Strength","Avg Bowler Bat Weighted Strength")
 col_tots = length(bat_col_names)
 
@@ -388,12 +381,12 @@ time.taken <- end.time - start.time
 time.taken
 
 #Savestate so we don't have to rerun computationally intensive parts later
-save.image(file='Batsmen Stats.RData')
+save.image(file='06 Batsmen Stats.RData')
 
 ```
 
 ```{r loadstate}
-#load(file='Batsmen Stats.RData')
+#load(file='06 Batsmen Stats.RData')
 
 ```
 

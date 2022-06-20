@@ -5,6 +5,9 @@
 *.Rhistory*
 *.jpg
 *.jpeg
+*.tmp
+*.Rprofile
+settings.json
 Unused
 
 !Data/*.xls*
