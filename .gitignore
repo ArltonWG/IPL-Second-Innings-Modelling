@@ -11,3 +11,4 @@ settings.json
 Unused
 
 !Data/*.xls*
+.Rproj.user

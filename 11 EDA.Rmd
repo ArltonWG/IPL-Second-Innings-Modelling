@@ -100,7 +100,7 @@ factor_info
 factor_info_red = factor_info %>% select(TEAM = `Defending Team`, PLAYED, DEFEND, CHASE, HOME, AWAY, NEUTRAL)
 factor_info_red
 
-#Result
+View(factor_info_red)
 
 ```
 
@@ -141,7 +141,7 @@ factor_info_red$`TOSS LOST` = factor_info_toss_defend$`LOST_DEFEND` + factor_inf
 factor_info_red
 
 colSums(factor_info_red[,-1])
-1002/(1002+368) * 100
+1094/(1094+388) * 100
 factor_info_red$DEFEND/factor_info_red$CHASE
 factor_info_red$`TOSS WON`/factor_info_red$`TOSS LOST`
 sort(unique(test_full$`Defending Team`))
@@ -188,7 +188,7 @@ factor_info_result$DEFEND = sum(as.numeric(train_full$`Defending Result`)-1)
 factor_info_result$CHASE = dim(train_full)[1] - factor_info_result$DEFEND
 
 factor_info_red2 = factor_info_result %>% select(c(PLAYED,DEFEND,CHASE,HOME,AWAY,NEUTRAL))
-factor_info_red2
+View(factor_info_red2)
 
 ```
 
@@ -233,11 +233,13 @@ ggsave(filename ='Images/corr.jpg', plot = replayPlot(p1))
 ```{r bestbat}
 best_bat_mult = all_bat_bat_scores %>% filter(`Matches Played`>=mom) %>% arrange(desc(`Batting Strength`)) %>% head(20) 
 View(best_bat_mult)
-best_bat_mult_red = best_bat_mult %>% select("Player","Date","Team","Opponent")
+best_bat_mult_red = best_bat_mult %>% select("Player","Country","Date","Team","Opponent","BatNum","Matches Played","Weighted Batting Strength")
 View(best_bat_mult_red)
 
 weighted_best_bat_mult = all_bat_bat_scores %>% filter(`Matches Played`>=mom) %>% arrange(desc(`Weighted Batting Strength`)) %>% head(20)
 View(weighted_best_bat_mult)
+weighted_best_bat_mult_red = weighted_best_bat_mult %>% select("Player","Country","Date","Team","Opponent","BatNum","Matches Played","Weighted Batting Strength")
+View(weighted_best_bat_mult_red)
 
 #best batsmen with at least 5 games
 best_bat = all_bat_bat_scores %>% filter(`Matches Played`>=mom) %>% arrange(desc(`Batting Strength`)) %>% distinct(Player,.keep_all = TRUE) %>% head(20) 
@@ -245,7 +247,6 @@ View(best_bat)
 
 weighted_best_bat = all_bat_bat_scores %>% filter(`Matches Played`>=mom) %>% arrange(desc(`Weighted Batting Strength`)) %>% distinct(Player,.keep_all = TRUE) %>% head(20)
 View(weighted_best_bat)
-
 
 ```
 
@@ -262,7 +263,8 @@ dim(high_scores)[1]
 high_results = high_scores[high_scores$`Defending Result` == 0,]
 dim(high_results)[1]
 
-high_scores2 = train_full[train_full$`First Inn Score` > 212,]
+high_scores2 = train_full[train_full$`First Inn Score` > 218,]
+
 dim(high_scores2)[1]
 
 high_results2 = high_scores2[high_scores2$`Defending Result` == 0,]
